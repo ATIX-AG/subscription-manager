@@ -425,6 +425,7 @@ setup(
     entry_points={
         'console_scripts': [
             'subscription-manager = subscription_manager.scripts.subscription_manager:main',
+            'package-profile-upload = subscription_manager.scripts.package_profile_upload:main',
             'rhn-migrate-classic-to-rhsm = subscription_manager.scripts.rhn_migrate_classic_to_rhsm:main',
             'rct = subscription_manager.scripts.rct:main',
             'rhsm-debug = subscription_manager.scripts.rhsm_debug:main',
