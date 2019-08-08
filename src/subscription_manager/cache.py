@@ -523,7 +523,7 @@ class ProfileManager(CacheManager):
             _combined_profile: List[Dict] = [
                 {
                     "content_type": key,
-                    "profile": value
+                    "profile": value,
                 }
                 for key, value in combined_profile.items()
             ]
