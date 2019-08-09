@@ -36,13 +36,13 @@ from .stubs import StubProductCertificate, \
         StubProductDirectory, StubConsumerIdentity, StubEntitlementDirectory
 from subscription_manager.repolib import RepoActionInvoker, \
         RepoUpdateActionCommand, YumReleaseverSource, YumPluginManager
-from subscription_manager.repofile import Repo, TidyWriter, YumRepoFile
+from rhsm.repofile import Repo, TidyWriter, YumRepoFile
 from subscription_manager import injection as inj
 from rhsm.config import RhsmConfigParser
 from rhsmlib.services import config
 
+from rhsm import repofile
 from subscription_manager import repolib
-from subscription_manager import repofile
 from subscription_manager.entcertlib import CONTENT_ACCESS_CERT_TYPE
 
 
@@ -855,8 +855,8 @@ class YumReleaseverSourceIsSetTest(fixture.SubManFixture):
 
 class YumRepoFileTest(unittest.TestCase):
 
-    @patch("subscription_manager.repofile.YumRepoFile.create")
-    @patch("subscription_manager.repofile.TidyWriter")
+    @patch("rhsm.repofile.YumRepoFile.create")
+    @patch("rhsm.repofile.TidyWriter")
     def test_configparsers_equal(self, tidy_writer, stub_create):
         rf = YumRepoFile()
         other = RawConfigParser()
@@ -865,8 +865,8 @@ class YumRepoFileTest(unittest.TestCase):
             parser.set('test', 'key', 'val')
         self.assertTrue(rf._configparsers_equal(other))
 
-    @patch("subscription_manager.repofile.YumRepoFile.create")
-    @patch("subscription_manager.repofile.TidyWriter")
+    @patch("rhsm.repofile.YumRepoFile.create")
+    @patch("rhsm.repofile.TidyWriter")
     def test_configparsers_diff_sections(self, tidy_writer, stub_create):
         rf = YumRepoFile()
         rf.add_section('new_section')
@@ -876,8 +876,8 @@ class YumRepoFileTest(unittest.TestCase):
             parser.set('test', 'key', 'val')
         self.assertFalse(rf._configparsers_equal(other))
 
-    @patch("subscription_manager.repofile.YumRepoFile.create")
-    @patch("subscription_manager.repofile.TidyWriter")
+    @patch("rhsm.repofile.YumRepoFile.create")
+    @patch("rhsm.repofile.TidyWriter")
     def test_configparsers_diff_item_val(self, tidy_writer, stub_create):
         rf = YumRepoFile()
         other = RawConfigParser()
@@ -887,8 +887,8 @@ class YumRepoFileTest(unittest.TestCase):
         rf.set('test', 'key', 'val2')
         self.assertFalse(rf._configparsers_equal(other))
 
-    @patch("subscription_manager.repofile.YumRepoFile.create")
-    @patch("subscription_manager.repofile.TidyWriter")
+    @patch("rhsm.repofile.YumRepoFile.create")
+    @patch("rhsm.repofile.TidyWriter")
     def test_configparsers_diff_items(self, tidy_writer, stub_create):
         rf = YumRepoFile()
         other = RawConfigParser()
@@ -898,8 +898,8 @@ class YumRepoFileTest(unittest.TestCase):
         rf.set('test', 'somekey', 'val')
         self.assertFalse(rf._configparsers_equal(other))
 
-    @patch("subscription_manager.repofile.YumRepoFile.create")
-    @patch("subscription_manager.repofile.TidyWriter")
+    @patch("rhsm.repofile.YumRepoFile.create")
+    @patch("rhsm.repofile.TidyWriter")
     def test_configparsers_equal_int(self, tidy_writer, stub_create):
         rf = YumRepoFile()
         other = RawConfigParser()
