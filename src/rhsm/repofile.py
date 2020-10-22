@@ -494,10 +494,19 @@ if apt and deb822:
             return apt_cont
 
         def enabled_repos(self):
+            enabled_repos = [repo for repo in self.repos822 if self._getboolean(repo, "enabled")]
             return [
                 {'repositoryid': repo822['id'], 'baseurl': [repo822['baseurl']]}
-                for repo822 in self.repos822
+                for repo822 in enabled_repos
             ]
+
+        _boolean_states = {'1': True, 'yes': True, 'true': True, 'on': True,
+
+        def _getboolean(self, repo, option):
+            v = repo.get(option)
+            if v.lower() not in self._boolean_states:
+                raise ValueError('Not a boolean: %s' % v)
+            return self._boolean_states[v.lower()]
 
 
 class YumRepoFile(RepoFileBase, ConfigParser):
