@@ -289,6 +289,17 @@ class RepoActionReportTests(fixture.SubManFixture):
                 self.fail("Expected to match the report label regex  %s but did not" % report_label_regex)
 
 
+USE_OS_RELEASE_PRODUCT_DISABLED = """
+[rhsm]
+use_os_release_product = 0
+"""
+
+USE_OS_RELEASE_PRODUCT_ENABLED = """
+[rhsm]
+use_os_release_product = 1
+"""
+
+
 class RepoUpdateActionTests(fixture.SubManFixture):
     def setUp(self):
         super(RepoUpdateActionTests, self).setUp()
@@ -462,6 +473,18 @@ class RepoUpdateActionTests(fixture.SubManFixture):
         self.assertEqual("some path", c4["ui_repoid_vars"])
         c2 = self._find_content(content, "c2")
         self.assertEqual(None, c2["ui_repoid_vars"])
+
+    @patch.object(repolib, "conf", ConfigFromString(config_string=USE_OS_RELEASE_PRODUCT_DISABLED))
+    def test_use_os_release_product_is_disabled(self):
+        update_action = RepoUpdateActionCommand()
+        enabled = update_action.use_os_release_product_enabled()
+        self.assertFalse(enabled)
+
+    @patch.object(repolib, "conf", ConfigFromString(config_string=USE_OS_RELEASE_PRODUCT_ENABLED))
+    def test_use_os_release_product_is_enabled(self):
+        update_action = RepoUpdateActionCommand()
+        enabled = update_action.use_os_release_product_enabled()
+        self.assertTrue(enabled)
 
     def test_tags_found(self):
         update_action = RepoUpdateActionCommand()
