@@ -487,6 +487,7 @@ if HAS_DEB822:
             # Luckily apt ignores all Fields it does not recognize
             parsed_url = urlparse(unquote(content["baseurl"]))
             baseurl = parsed_url._replace(query="").geturl()
+            url_res = re.match(r"^https?://(?P<location>.*)$", baseurl)
             ent_res = re.match(r"^/etc/pki/entitlement/(?P<entitlement>.*).pem$", content["sslclientcert"])
             if ent_res:
                 netloc = ent_res.group("entitlement") + "@" + parsed_url.netloc
@@ -496,6 +497,14 @@ if HAS_DEB822:
             if "rel" in query and "comp" in query:
                 suites = " ".join(query["rel"][0].split(","))
                 components = " ".join(query["comp"][0].split(","))
+            else:
+                suites = "default"
+                components = "all"
+
+            query = parse_qs(parsed_url.query)
+            if "rel" in query and "comp" in query:
+                suites = query["rel"][0].replace(",", " ")
+                components = query["rel"][0].replace(",", " ")
             else:
                 suites = "default"
                 components = "all"
