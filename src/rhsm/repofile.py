@@ -494,7 +494,7 @@ if apt is not None:
             query = parse_qs(parsed_url.query)
             if "rel" in query and "comp" in query:
                 suites = query["rel"][0].replace(",", " ")
-                components = query["rel"][0].replace(",", " ")
+                components = query["comp"][0].replace(",", " ")
             else:
                 suites = "default"
                 components = "all"
