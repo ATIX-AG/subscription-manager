@@ -503,7 +503,9 @@ class ProfileManager(CacheManager):
     @property
     def current_profile(self) -> Dict[str, List[Dict]]:
         if not self._current_profile:
-            self._current_profile: Dict[str, List[Dict]] = {key: get_profile(key).collect() for key in PROFILE_MAP.keys()}
+            self._current_profile: Dict[str, List[Dict]] = {
+                key: get_profile(key).collect() for key in PROFILE_MAP.keys()
+            }
         return self._current_profile
 
     @current_profile.setter
