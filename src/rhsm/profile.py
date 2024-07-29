@@ -371,10 +371,12 @@ class DebProfile(object):
         cache = apt.Cache()
         self._deb_profile = [
             {
-                'name': package.name,
-                'version': package.installed.version,
-                'architecture': package.installed.architecture
-            } for package in cache if package.installed is not None
+                "name": package.name,
+                "version": package.installed.version,
+                "architecture": package.installed.architecture,
+            }
+            for package in cache
+            if package.installed is not None
         ]
 
     def __eq__(self, other):
