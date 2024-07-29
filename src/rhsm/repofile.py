@@ -540,19 +540,25 @@ if apt is not None:
         def enabled_repos(self):
             enabled_repos = [repo for repo in self.repos822 if self._getboolean(repo, "enabled")]
             return [
-                {'repositoryid': repo822['id'], 'baseurl': [repo822['baseurl']]}
-                for repo822 in enabled_repos
+                {"repositoryid": repo822["id"], "baseurl": [repo822["baseurl"]]} for repo822 in enabled_repos
             ]
 
-        _boolean_states = {'1': True, 'yes': True, 'true': True, 'on': True,
-                           '0': False, 'no': False, 'false': False, 'off': False}
+        _boolean_states = {
+            "1": True,
+            "yes": True,
+            "true": True,
+            "on": True,
+            "0": False,
+            "no": False,
+            "false": False,
+            "off": False,
+        }
 
         def _getboolean(self, repo, option):
             v = repo.get(option)
             if v.lower() not in self._boolean_states:
-                raise ValueError('Not a boolean: %s' % v)
+                raise ValueError("Not a boolean: %s" % v)
             return self._boolean_states[v.lower()]
-
 
 
 class YumRepoFile(RepoFileBase, ConfigParser):
@@ -635,10 +641,7 @@ class YumRepoFile(RepoFileBase, ConfigParser):
             enabled_sections = [section for section in self.sections() if self.getboolean(section, "enabled")]
             for section in enabled_sections:
                 result.append(
-                    {
-                        "repositoryid": section,
-                        "baseurl": [self._replace_vars(self.get(section, "baseurl"))]
-                    }
+                    {"repositoryid": section, "baseurl": [self._replace_vars(self.get(section, "baseurl"))]}
                 )
         except ImportError:
             pass
@@ -666,16 +669,19 @@ class YumRepoFile(RepoFileBase, ConfigParser):
         elif yum is not None:
             return self._obtain_mappings_yum()
         else:
-            log.error('Unable to load module for any supported package manager (dnf, yum).')
+            log.error("Unable to load module for any supported package manager (dnf, yum).")
             raise ImportError
 
     def _obtain_mappings_dnf(self):
         db = dnf.dnf.Base()
-        return {'$releasever': db.conf.substitutions['releasever'], '$basearch': db.conf.substitutions['basearch']}
+        return {
+            "$releasever": db.conf.substitutions["releasever"],
+            "$basearch": db.conf.substitutions["basearch"],
+        }
 
     def _obtain_mappings_yum(self):
         yb = yum.YumBase()
-        return {'$releasever': yb.conf.yumvar['releasever'], '$basearch': yb.conf.yumvar['basearch']}
+        return {"$releasever": yb.conf.yumvar["releasever"], "$basearch": yb.conf.yumvar["basearch"]}
 
 
 class ZypperRepoFile(YumRepoFile):
@@ -809,7 +815,7 @@ class ZypperRepoFile(YumRepoFile):
 
     def _obtain_mappings(self):
         db = zypp.ZConfig.instance()
-        return {'$basearch': str(db.systemArchitecture())}
+        return {"$basearch": str(db.systemArchitecture())}
 
 
 def init_repo_file_classes() -> List[Tuple[type(RepoFileBase), str]]:
