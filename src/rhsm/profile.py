@@ -207,7 +207,7 @@ class EnabledReposProfile:
             repo_file = repo_file_cls()
             repo_file.read()
             self._content.extend(repo_file.enabled_repos())
-        self._content.sort(key=lambda x: x['baseurl'])
+        self._content.sort(key=lambda x: x["baseurl"])
 
     def __eq__(self, other: "EnabledReposProfile") -> bool:
         return self._content == other._content
