@@ -31,7 +31,9 @@ from rhsm import repofile
 # the class is not defined in the first place
 deb_mock = MagicMock()
 deb_mock.Deb822 = dict
-with patch.dict("rhsm.repofile.sys.modules", {"debian.deb822": deb_mock}):
+apt_mock = MagicMock()
+apt_mock.Cache = dict
+with patch.dict("rhsm.repofile.sys.modules", {"debian.deb822": deb_mock, "apt": apt_mock}):
     reload(repofile)
     from rhsm.repofile import AptRepoFile
 reload(repofile)
@@ -908,7 +910,7 @@ class YumReleaseverSourceIsSetTest(fixture.SubManFixture):
 
 class AptRepoFileTest(unittest.TestCase):
     def _helper_stub_repo(self, *args, **kwargs):
-        with patch("rhsm.repofile.apt", True):
+        with patch("rhsm.repofile.apt", dict):
             repo = Repo(*args, **kwargs)
         return repo
 
