@@ -515,13 +515,17 @@ if apt is not None:
 
             # 'Signed-By': look for pulp public-key in '/etc/apt/trusted.gpg.d/'
             keypath = "/etc/apt/trusted.gpg.d/"
-            keyfiles = [
-                os.path.join(keypath, f)
-                for f in os.listdir(keypath)
-                if os.path.isfile(os.path.join(keypath, f))
-                and (f.startswith("orcharhino_") or f.startswith("pulp_") or f.startswith("client"))
-                and (f.endswith(".gpg") or f.endswith(".asc"))
-            ]
+            if os.path.exists(keypath) and os.path.isdir(keypath):
+                keyfiles = [
+                    os.path.join(keypath, f)
+                    for f in os.listdir(keypath)
+                    if os.path.isfile(os.path.join(keypath, f))
+                    and (f.startswith("orcharhino_") or f.startswith("pulp_") or f.startswith("client"))
+                    and (f.endswith(".gpg") or f.endswith(".asc"))
+                ]
+            else:
+                keyfiles = []
+
             orcharhino_keyfile = None
             if len(keyfiles) > 1:
                 orcharhino_keyfile = keyfiles[0]
