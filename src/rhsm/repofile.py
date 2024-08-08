@@ -659,7 +659,7 @@ class YumRepoFile(RepoFileBase, ConfigParser):
         :type path: str
         """
         mappings = self._obtain_mappings()
-        for key, value in mappings:
+        for key, value in mappings.items():
             repo_url = repo_url.replace(key, value)
         return repo_url
 
