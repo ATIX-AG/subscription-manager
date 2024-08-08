@@ -14,11 +14,13 @@ import logging
 
 import importlib.util
 import rpm
-from typing import List, Union
+import os
+from typing import List, Optional, Union
 
 from rhsm import ourjson as json
 from rhsm.utils import suppress_output
 from rhsm.repofile import get_repo_file_classes
+from rhsm.repofile import YumRepoFile
 from cloud_what import provider
 
 try:
@@ -201,12 +203,18 @@ class EnabledReposProfile:
     Collect information about enabled repositories
     """
 
-    def __init__(self, repo_file: str = REPOSITORY_PATH) -> None:
+    def __init__(self, repo_file: Optional[str] = None) -> None:
         self._content = []
-        for repo_file_cls, _ in get_repo_file_classes():
-            repo_file = repo_file_cls()
-            repo_file.read()
-            self._content.extend(repo_file.enabled_repos())
+
+        if repo_file is not None:
+            yum_repo = YumRepoFile(os.path.dirname(repo_file), os.path.basename(repo_file))
+            yum_repo.read()
+            self._content.extend(yum_repo.enabled_repos())
+        else:
+            for repo_file_cls, _ in get_repo_file_classes():
+                repo_file = repo_file_cls()
+                repo_file.read()
+                self._content.extend(repo_file.enabled_repos())
         self._content.sort(key=lambda x: x["baseurl"])
 
     def __eq__(self, other: "EnabledReposProfile") -> bool:
