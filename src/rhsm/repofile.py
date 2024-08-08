@@ -25,11 +25,30 @@ import string
 import sys
 
 try:
+    import apt
     from debian.deb822 import Deb822
-
-    HAS_DEB822 = True
 except ImportError:
-    HAS_DEB822 = False
+    apt = None
+
+try:
+    import dnf
+except ImportError:
+    dnf = None
+
+try:
+    import libdnf
+except ImportError:
+    libdnf = None
+
+try:
+    import yum
+except ImportError:
+    yum = None
+
+try:
+    import zypp
+except ImportError:
+    zypp = None
 
 from subscription_manager import utils
 from subscription_manager.certdirectory import Path
@@ -77,7 +96,7 @@ class Repo(dict):
 
     def __init__(self, repo_id: str, existing_values: List = None):
         super().__init__()
-        if HAS_DEB822 is True:
+        if apt is not None:
             self.PROPERTIES["arches"] = (1, None)
 
         # existing_values is a list of 2-tuples
@@ -139,7 +158,6 @@ class Repo(dict):
         repoid_vars = [part[1:] for part in repo_parts if part.startswith("$")]
         if HAS_YUM and repoid_vars:
             repo["ui_repoid_vars"] = " ".join(repoid_vars)
-
         # If no GPG key URL is specified, turn gpgcheck off:
         gpg_url = content.gpg
         if not gpg_url:
@@ -383,6 +401,9 @@ class RepoFileBase:
     def fix_content(self, content: str) -> str:
         return content
 
+    def enabled_repos(self):
+        raise NotImplementedError("'enabled_repos' is not implemented for this repo_file.")
+
     @classmethod
     def installed(cls) -> bool:
         return os.path.exists(Path.abs(cls.PATH))
@@ -392,7 +413,7 @@ class RepoFileBase:
         return cls("var/lib/rhsm/repo_server_val/")
 
 
-if HAS_DEB822:
+if apt is not None:
 
     class AptRepoFile(RepoFileBase):
         PATH: str = "etc/apt/sources.list.d"
@@ -461,7 +482,8 @@ if HAS_DEB822:
 
         def fix_content(self, content):
             # Luckily apt ignores all Fields it does not recognize
-            baseurl = content["baseurl"]
+            parsed_url = urlparse(content["baseurl"])
+            baseurl = parsed_url._replace(query="").geturl()
             url_res = re.match(r"^https?://(?P<location>.*)$", baseurl)
             ent_res = re.match(r"^/etc/pki/entitlement/(?P<entitlement>.*).pem$", content["sslclientcert"])
             if url_res and ent_res:
@@ -469,11 +491,19 @@ if HAS_DEB822:
                 entitlement = ent_res.group("entitlement")
                 baseurl = "katello://{}@{}".format(entitlement, location)
 
+            query = parse_qs(parsed_url.query)
+            if "rel" in query and "comp" in query:
+                suites = query["rel"][0].replace(",", " ")
+                components = query["comp"][0].replace(",", " ")
+            else:
+                suites = "default"
+                components = "all"
+
             apt_cont = content.copy()
             apt_cont["Types"] = "deb"
             apt_cont["URIs"] = baseurl
-            apt_cont["Suites"] = "default"
-            apt_cont["Components"] = "all"
+            apt_cont["Suites"] = suites
+            apt_cont["Components"] = components
             apt_cont["Trusted"] = "yes"
 
             if apt_cont["arches"] is None or apt_cont["arches"] == ["ALL"]:
@@ -483,7 +513,56 @@ if HAS_DEB822:
                 apt_cont["arches"] = arches_str
                 apt_cont["Architectures"] = arches_str
 
+            # 'Signed-By': look for pulp public-key in '/etc/apt/trusted.gpg.d/'
+            keypath = "/etc/apt/trusted.gpg.d/"
+            if os.path.exists(keypath) and os.path.isdir(keypath):
+                keyfiles = [
+                    os.path.join(keypath, f)
+                    for f in os.listdir(keypath)
+                    if os.path.isfile(os.path.join(keypath, f))
+                    and (f.startswith("orcharhino_") or f.startswith("pulp_") or f.startswith("client"))
+                    and (f.endswith(".gpg") or f.endswith(".asc"))
+                ]
+            else:
+                keyfiles = []
+
+            orcharhino_keyfile = None
+            if len(keyfiles) > 1:
+                orcharhino_keyfile = keyfiles[0]
+                log.info(f"Found more than one pulp signing-key file; choosing '{orcharhino_keyfile}'")
+            elif len(keyfiles) == 1:
+                orcharhino_keyfile = keyfiles[0]
+            else:
+                log.warning(f"Could not find pulp signing-key in {keypath}")
+            if orcharhino_keyfile:
+                apt_cont["Signed-By"] = orcharhino_keyfile
+            else:
+                log.warning("No pulp signing-key file found!")
+
             return apt_cont
+
+        def enabled_repos(self):
+            enabled_repos = [repo for repo in self.repos822 if self._getboolean(repo, "enabled")]
+            return [
+                {"repositoryid": repo822["id"], "baseurl": [repo822["baseurl"]]} for repo822 in enabled_repos
+            ]
+
+        _boolean_states = {
+            "1": True,
+            "yes": True,
+            "true": True,
+            "on": True,
+            "0": False,
+            "no": False,
+            "false": False,
+            "off": False,
+        }
+
+        def _getboolean(self, repo, option):
+            v = repo.get(option)
+            if v.lower() not in self._boolean_states:
+                raise ValueError("Not a boolean: %s" % v)
+            return self._boolean_states[v.lower()]
 
 
 class YumRepoFile(RepoFileBase, ConfigParser):
@@ -559,6 +638,54 @@ class YumRepoFile(RepoFileBase, ConfigParser):
     def section(self, section: str) -> "Repo":
         if self.has_section(section):
             return Repo(section, self.items(section))
+
+    def enabled_repos(self):
+        result = []
+        try:
+            enabled_sections = [section for section in self.sections() if self.getboolean(section, "enabled")]
+            for section in enabled_sections:
+                result.append(
+                    {"repositoryid": section, "baseurl": [self._replace_vars(self.get(section, "baseurl"))]}
+                )
+        except ImportError:
+            pass
+        return result
+
+    def _replace_vars(self, repo_url):
+        """
+        returns a string with "$basearch" and "$releasever" replaced.
+
+        :param repo_url: a repo URL that you want to replace $basearch and $releasever in.
+        :type path: str
+        """
+        mappings = self._obtain_mappings()
+        for key, value in mappings.items():
+            repo_url = repo_url.replace(key, value)
+        return repo_url
+
+    def _obtain_mappings(self):
+        """
+        returns a hash with "basearch" and "releasever" set. This will try dnf first, and then yum if dnf is
+        not installed.
+        """
+        if dnf is not None:
+            return self._obtain_mappings_dnf()
+        elif yum is not None:
+            return self._obtain_mappings_yum()
+        else:
+            log.error("Unable to load module for any supported package manager (dnf, yum).")
+            raise ImportError
+
+    def _obtain_mappings_dnf(self):
+        db = dnf.dnf.Base()
+        return {
+            "$releasever": db.conf.substitutions["releasever"],
+            "$basearch": db.conf.substitutions["basearch"],
+        }
+
+    def _obtain_mappings_yum(self):
+        yb = yum.YumBase()
+        return {"$releasever": yb.conf.yumvar["releasever"], "$basearch": yb.conf.yumvar["basearch"]}
 
 
 class ZypperRepoFile(YumRepoFile):
@@ -690,10 +817,14 @@ class ZypperRepoFile(YumRepoFile):
     def server_value_repo_file(cls) -> "ZypperRepoFile":
         return cls("var/lib/rhsm/repo_server_val/", "zypper_{}".format(cls.NAME))
 
+    def _obtain_mappings(self):
+        db = zypp.ZConfig.instance()
+        return {"$basearch": str(db.systemArchitecture())}
+
 
 def init_repo_file_classes() -> List[Tuple[type(RepoFileBase), str]]:
     repo_file_classes: List[type(RepoFileBase)] = [YumRepoFile, ZypperRepoFile]
-    if HAS_DEB822:
+    if apt is not None:
         repo_file_classes.append(AptRepoFile)
     _repo_files: List[Tuple[type(RepoFileBase), type(RepoFileBase)]] = [
         (RepoFile, RepoFile.server_value_repo_file) for RepoFile in repo_file_classes if RepoFile.installed()
