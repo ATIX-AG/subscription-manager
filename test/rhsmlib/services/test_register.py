@@ -16,7 +16,7 @@ import json
 
 import subscription_manager.injection as inj
 
-from subscription_manager.cache import InstalledProductsManager, ContentAccessModeCache
+from subscription_manager.cache import InstalledProductsManager
 from subscription_manager.cp_provider import CPProvider
 from subscription_manager.facts import Facts
 from subscription_manager.identity import Identity
@@ -54,20 +54,163 @@ CONSUMER_CONTENT_JSON = """{"hypervisorId": null,
           "displayName": "Admin Owner",
           "id": "ff808081550d997c01550d9adaf40003",
           "key": "admin",
-          "contentAccessMode": "entitlement"
+          "contentAccessMode": "org_environment"
         },
         "href": "/consumers/c1b8648c-6f0a-4aa5-b34e-b9e62c0e4364",
         "facts": {}, "id": "ff808081550d997c015511b0406d1065",
         "uuid": "c1b8648c-6f0a-4aa5-b34e-b9e62c0e4364",
         "guestIds": null, "capabilities": null,
-        "environment": null, "installedProducts": null,
+        "environment": {
+          "created" : "2024-12-09T09:25:17+0000",
+          "updated" : "2024-12-09T09:25:17+0000",
+          "id" : "env-id-1",
+          "name" : "env-name-1",
+          "type" : "content-template",
+          "description" : "Testing environment #1",
+          "contentPrefix" : null,
+          "owner" : {
+            "id" : "ff808081550d997c01550d9adaf40003",
+            "key" : "admin",
+            "displayName" : "Admin Owner",
+            "href" : "/owners/admin",
+            "contentAccessMode" : "org_environment"
+          },
+          "environmentContent" : [ ]
+        },
+        "installedProducts": null,
         "canActivate": false, "type": {"manifest": false,
         "id": "1000", "label": "system"}, "annotations": null,
         "username": "admin", "updated": "2016-06-02T15:16:51+0000",
         "lastCheckin": null, "entitlementCount": 0, "releaseVer":
         {"releaseVer": null}, "entitlementStatus": "valid", "name":
         "test.example.com", "created": "2016-06-02T15:16:51+0000",
-        "contentTags": null, "dev": false}"""
+        "contentTags": null,
+        "dev": false,
+        "environments": [ {
+          "created" : "2024-12-09T09:25:17+0000",
+          "updated" : "2024-12-09T09:25:17+0000",
+          "id" : "env-id-1",
+          "name" : "env-name-1",
+          "type" : "content-template",
+          "description" : "Testing environment #1",
+          "contentPrefix" : null,
+          "owner" : {
+            "id" : "ff808081550d997c01550d9adaf40003",
+            "key" : "admin",
+            "displayName" : "Admin Owner",
+            "href" : "/owners/admin",
+            "contentAccessMode" : "org_environment"
+          },
+          "environmentContent" : [ ]
+        },
+        {
+          "created" : "2024-12-09T09:25:17+0000",
+          "updated" : "2024-12-09T09:25:17+0000",
+          "id" : "env-id-2",
+          "name" : "env-name-2",
+          "type" : "content-template",
+          "description" : "Testing environment #2",
+          "contentPrefix" : null,
+          "owner" : {
+            "id" : "ff808081550d997c01550d9adaf40003",
+            "key" : "admin",
+            "displayName" : "Admin Owner",
+            "href" : "/owners/admin",
+            "contentAccessMode" : "org_environment"
+          },
+          "environmentContent" : [ ]
+        } ] }"""
+
+CONSUMER_CONTENT_JSON_WRONG_ENT_TYPE = """{"hypervisorId": null,
+        "serviceLevel": "",
+        "autoheal": true,
+        "idCert": {
+          "key": "FAKE_KEY",
+          "cert": "FAKE_CERT",
+          "serial" : {
+            "id" : 5196045143213189102,
+            "revoked" : false,
+            "collected" : false,
+            "expiration" : "2033-04-25T18:03:06+0000",
+            "serial" : 5196045143213189102,
+            "created" : "2017-04-25T18:03:06+0000",
+            "updated" : "2017-04-25T18:03:06+0000"
+          },
+          "id" : "8a8d011e5ba64700015ba647fbd20b88",
+          "created" : "2017-04-25T18:03:07+0000",
+          "updated" : "2017-04-25T18:03:07+0000"
+        },
+        "owner": {
+          "href": "/owners/admin",
+          "displayName": "Admin Owner",
+          "id": "ff808081550d997c01550d9adaf40003",
+          "key": "admin",
+          "contentAccessMode": "org_environment"
+        },
+        "href": "/consumers/c1b8648c-6f0a-4aa5-b34e-b9e62c0e4364",
+        "facts": {}, "id": "ff808081550d997c015511b0406d1065",
+        "uuid": "c1b8648c-6f0a-4aa5-b34e-b9e62c0e4364",
+        "guestIds": null, "capabilities": null,
+        "environment": {
+          "created" : "2024-12-09T09:25:17+0000",
+          "updated" : "2024-12-09T09:25:17+0000",
+          "id" : "env-id-1",
+          "name" : "env-name-1",
+          "type" : "content-template",
+          "description" : "Testing environment #1",
+          "contentPrefix" : null,
+          "owner" : {
+            "id" : "ff808081550d997c01550d9adaf40003",
+            "key" : "admin",
+            "displayName" : "Admin Owner",
+            "href" : "/owners/admin",
+            "contentAccessMode" : "org_environment"
+          },
+          "environmentContent" : [ ]
+        },
+        "installedProducts": null,
+        "canActivate": false, "type": {"manifest": false,
+        "id": "1000", "label": "system"}, "annotations": null,
+        "username": "admin", "updated": "2016-06-02T15:16:51+0000",
+        "lastCheckin": null, "entitlementCount": 0, "releaseVer":
+        {"releaseVer": null}, "entitlementStatus": "valid", "name":
+        "test.example.com", "created": "2016-06-02T15:16:51+0000",
+        "contentTags": null,
+        "dev": false,
+        "environments": [ {
+          "created" : "2024-12-09T09:25:17+0000",
+          "updated" : "2024-12-09T09:25:17+0000",
+          "id" : "env-id-1",
+          "name" : "env-name-1",
+          "type" : "content-template",
+          "description" : "Testing environment #1",
+          "contentPrefix" : null,
+          "owner" : {
+            "id" : "ff808081550d997c01550d9adaf40003",
+            "key" : "admin",
+            "displayName" : "Admin Owner",
+            "href" : "/owners/admin",
+            "contentAccessMode" : "org_environment"
+          },
+          "environmentContent" : [ ]
+        },
+        {
+          "created" : "2024-12-09T09:25:17+0000",
+          "updated" : "2024-12-09T09:25:17+0000",
+          "id" : "env-id-2",
+          "name" : "env-name-2",
+          "type" : "wrong_type_foo",
+          "description" : "Testing environment #2",
+          "contentPrefix" : null,
+          "owner" : {
+            "id" : "ff808081550d997c01550d9adaf40003",
+            "key" : "admin",
+            "displayName" : "Admin Owner",
+            "href" : "/owners/admin",
+            "contentAccessMode" : "org_environment"
+          },
+          "environmentContent" : [ ]
+        } ] }"""
 
 # Following consumer do not contain information about content access mode
 OLD_CONSUMER_CONTENT_JSON = """{"hypervisorId": null,
@@ -180,12 +323,6 @@ class RegisterServiceTest(InjectionMockingTest):
         # Add a mock cp_provider
         self.mock_cp_provider = mock.Mock(spec=CPProvider, name="CPProvider")
 
-        # Add a mock for content access mode cache
-        self.mock_content_access_mode_cache = mock.Mock(
-            spec=ContentAccessModeCache, name="ContentAccessModeCache"
-        )
-        self.mock_content_access_mode_cache.read_data = mock.Mock(return_value="entitlement")
-
         # For the tests in which it's used, the consumer_auth cp and basic_auth cp can be the same
         self.mock_cp_provider.get_consumer_auth_cp.return_value = self.mock_cp
         self.mock_cp_provider.get_basic_auth_cp.return_value = self.mock_cp
@@ -215,8 +352,6 @@ class RegisterServiceTest(InjectionMockingTest):
             return self.mock_facts
         elif args[0] == inj.CP_PROVIDER:
             return self.mock_cp_provider
-        elif args[0] == inj.CONTENT_ACCESS_MODE_CACHE:
-            return self.mock_content_access_mode_cache
         else:
             return None
 
@@ -230,13 +365,14 @@ class RegisterServiceTest(InjectionMockingTest):
         self.mock_cp.registerConsumer.return_value = expected_consumer
 
         register_service = register.RegisterService(self.mock_cp)
-        register_service.register("org", name="name", environments="environment")
+        register_service.register("org", name="name", environments=["environment"])
 
         self.mock_cp.registerConsumer.assert_called_once_with(
             name="name",
             facts={},
             owner="org",
-            environments="environment",
+            environments=["environment"],
+            environment_names=None,
             keys=None,
             installed_products=[],
             jwt_token=None,
@@ -259,7 +395,166 @@ class RegisterServiceTest(InjectionMockingTest):
 
     @mock.patch("rhsmlib.services.register.syspurposelib.write_syspurpose_cache", return_value=True)
     @mock.patch("rhsmlib.services.register.managerlib.persist_consumer_cert")
-    def test_register_normally_old_candlepin(self, mock_persist_consumer, mock_write_cache):
+    def test_register_multiple_environment_ids(self, mock_persist_consumer, mock_write_cache):
+        self.mock_identity.is_valid.return_value = False
+        self.mock_installed_products.format_for_server.return_value = []
+        self.mock_installed_products.tags = []
+        expected_consumer = json.loads(CONSUMER_CONTENT_JSON)
+        self.mock_cp.registerConsumer.return_value = expected_consumer
+
+        register_service = register.RegisterService(self.mock_cp)
+        register_service.register("org", name="name", environments=["env-id-1", "env-id-2"])
+
+        self.mock_cp.registerConsumer.assert_called_once_with(
+            name="name",
+            facts={},
+            owner="org",
+            environments=["env-id-1", "env-id-2"],
+            environment_names=None,
+            keys=None,
+            installed_products=[],
+            jwt_token=None,
+            content_tags=[],
+            consumer_type="system",
+            role="",
+            addons=[],
+            service_level="",
+            usage="",
+        )
+        self.mock_installed_products.write_cache.assert_called()
+
+        mock_persist_consumer.assert_called_once_with(expected_consumer)
+        mock_write_cache.assert_called_once()
+        expected_plugin_calls = [
+            mock.call("pre_register_consumer", name="name", facts={}),
+            mock.call("post_register_consumer", consumer=expected_consumer, facts={}),
+        ]
+        self.assertEqual(expected_plugin_calls, self.mock_pm.run.call_args_list)
+
+    @mock.patch("rhsmlib.services.register.syspurposelib.write_syspurpose_cache", return_value=True)
+    @mock.patch("rhsmlib.services.register.managerlib.persist_consumer_cert")
+    def test_register_multiple_environment_names(self, mock_persist_consumer, mock_write_cache):
+        self.mock_identity.is_valid.return_value = False
+        self.mock_installed_products.format_for_server.return_value = []
+        self.mock_installed_products.tags = []
+        expected_consumer = json.loads(CONSUMER_CONTENT_JSON)
+        self.mock_cp.registerConsumer.return_value = expected_consumer
+
+        register_service = register.RegisterService(self.mock_cp)
+        register_service.register("org", name="name", environment_names=["env-name-1", "env-name-2"])
+
+        self.mock_cp.registerConsumer.assert_called_once_with(
+            name="name",
+            facts={},
+            owner="org",
+            environments=None,
+            environment_names=["env-name-1", "env-name-2"],
+            keys=None,
+            installed_products=[],
+            jwt_token=None,
+            content_tags=[],
+            consumer_type="system",
+            role="",
+            addons=[],
+            service_level="",
+            usage="",
+        )
+        self.mock_installed_products.write_cache.assert_called()
+
+        mock_persist_consumer.assert_called_once_with(expected_consumer)
+        mock_write_cache.assert_called_once()
+        expected_plugin_calls = [
+            mock.call("pre_register_consumer", name="name", facts={}),
+            mock.call("post_register_consumer", consumer=expected_consumer, facts={}),
+        ]
+        self.assertEqual(expected_plugin_calls, self.mock_pm.run.call_args_list)
+
+    @mock.patch("rhsmlib.services.register.syspurposelib.write_syspurpose_cache", return_value=True)
+    @mock.patch("rhsmlib.services.register.managerlib.persist_consumer_cert")
+    def test_register_environment_name_type(self, mock_persist_consumer, mock_write_cache):
+        self.mock_identity.is_valid.return_value = False
+        self.mock_installed_products.format_for_server.return_value = []
+        self.mock_installed_products.tags = []
+        expected_consumer = json.loads(CONSUMER_CONTENT_JSON)
+        self.mock_cp.registerConsumer.return_value = expected_consumer
+
+        register_service = register.RegisterService(self.mock_cp)
+        register_service.register(
+            "org",
+            name="name",
+            environment_names=["env-name-1", "env-name-2"],
+            environment_type="content-template",
+        )
+
+        self.mock_cp.registerConsumer.assert_called_once_with(
+            name="name",
+            facts={},
+            owner="org",
+            environments=None,
+            environment_names=["env-name-1", "env-name-2"],
+            keys=None,
+            installed_products=[],
+            jwt_token=None,
+            content_tags=[],
+            consumer_type="system",
+            role="",
+            addons=[],
+            service_level="",
+            usage="",
+        )
+        self.mock_installed_products.write_cache.assert_called()
+
+        mock_persist_consumer.assert_called_once_with(expected_consumer)
+        mock_write_cache.assert_called_once()
+        expected_plugin_calls = [
+            mock.call("pre_register_consumer", name="name", facts={}),
+            mock.call("post_register_consumer", consumer=expected_consumer, facts={}),
+        ]
+        self.assertEqual(expected_plugin_calls, self.mock_pm.run.call_args_list)
+
+    @mock.patch("rhsmlib.services.register.syspurposelib.write_syspurpose_cache", return_value=True)
+    @mock.patch("rhsmlib.services.register.managerlib.persist_consumer_cert")
+    def test_register_environment_name_wrong_type(self, mock_persist_consumer, mock_write_cache):
+        self.mock_identity.is_valid.return_value = False
+        self.mock_installed_products.format_for_server.return_value = []
+        self.mock_installed_products.tags = []
+        expected_consumer = json.loads(CONSUMER_CONTENT_JSON_WRONG_ENT_TYPE)
+        self.mock_cp.registerConsumer.return_value = expected_consumer
+
+        register_service = register.RegisterService(self.mock_cp)
+
+        with self.assertRaises(Exception):
+            register_service.register(
+                "org",
+                name="name",
+                environment_names=["env-name-1", "env-name-2"],
+                environment_type="content-template",
+            )
+
+    @mock.patch("rhsmlib.services.register.syspurposelib.write_syspurpose_cache", return_value=True)
+    @mock.patch("rhsmlib.services.register.managerlib.persist_consumer_cert")
+    def test_register_not_allow_environment_ids_and_names(self, mock_persist_consumer, mock_write_cache):
+        self.mock_identity.is_valid.return_value = False
+        self.mock_installed_products.format_for_server.return_value = []
+        self.mock_installed_products.tags = []
+        expected_consumer = json.loads(CONSUMER_CONTENT_JSON)
+        self.mock_cp.registerConsumer.return_value = expected_consumer
+
+        register_service = register.RegisterService(self.mock_cp)
+        with self.assertRaisesRegex(
+            exceptions.ValidationError, r".*Environment IDs and environment names are mutually exclusive.*"
+        ):
+            register_service.register(
+                "org",
+                name="name",
+                environments=["env-id-1", "env-id-2"],
+                environment_names=["env-name-1", "env-name-2"],
+            )
+
+    @mock.patch("rhsmlib.services.register.syspurposelib.write_syspurpose_cache", return_value=True)
+    @mock.patch("rhsmlib.services.register.managerlib.clean_all_data", return_value=None)
+    @mock.patch("rhsmlib.services.register.managerlib.persist_consumer_cert")
+    def test_register_normally_old_candlepin(self, mock_persist_consumer, mock_clean, mock_write_cache):
         """
         Test for the case, when candlepin server returns consumer without information about
         content access mode.
@@ -271,39 +566,17 @@ class RegisterServiceTest(InjectionMockingTest):
         self.mock_cp.registerConsumer.return_value = expected_consumer
 
         register_service = register.RegisterService(self.mock_cp)
-        consumer = register_service.register("org", name="name", environments="environment")
-
-        self.mock_cp.registerConsumer.assert_called_once_with(
-            name="name",
-            facts={},
-            owner="org",
-            environments="environment",
-            keys=None,
-            installed_products=[],
-            jwt_token=None,
-            content_tags=[],
-            consumer_type="system",
-            role="",
-            addons=[],
-            service_level="",
-            usage="",
-        )
-        self.mock_installed_products.write_cache.assert_called()
-
-        mock_persist_consumer.assert_called_once_with(expected_consumer)
-        mock_write_cache.assert_called_once()
-        expected_plugin_calls = [
-            mock.call("pre_register_consumer", name="name", facts={}),
-            mock.call("post_register_consumer", consumer=expected_consumer, facts={}),
-        ]
-        self.assertEqual(expected_plugin_calls, self.mock_pm.run.call_args_list)
-        assert "owner" in consumer
-        assert "contentAccessMode" in consumer["owner"]
-        assert "entitlement" == consumer["owner"]["contentAccessMode"]
+        with self.assertRaises(exceptions.ServiceError) as exc_info:
+            register_service.register("org", name="name", environments=["environment"])
+            self.assertEqual(
+                str(exc_info.exception),
+                "Registration is only possible when the organization is in Simple Content Access Mode.",
+            )
 
     @mock.patch("rhsmlib.services.register.syspurposelib.write_syspurpose_cache", return_value=True)
+    @mock.patch("rhsmlib.services.register.managerlib.clean_all_data")
     @mock.patch("rhsmlib.services.register.managerlib.persist_consumer_cert")
-    def test_register_normally_no_owner(self, mock_persist_consumer, mock_write_cache):
+    def test_register_normally_no_owner(self, mock_persist_consumer, mock_clean, mock_write_cache):
         """
         Test for the case, when candlepin server returns consumer without owner
         """
@@ -315,33 +588,12 @@ class RegisterServiceTest(InjectionMockingTest):
         self.mock_cp.registerConsumer.return_value = expected_consumer
 
         register_service = register.RegisterService(self.mock_cp)
-        consumer = register_service.register("org", name="name", environments="environment")
-
-        self.mock_cp.registerConsumer.assert_called_once_with(
-            name="name",
-            facts={},
-            owner="org",
-            environments="environment",
-            keys=None,
-            installed_products=[],
-            jwt_token=None,
-            content_tags=[],
-            consumer_type="system",
-            role="",
-            addons=[],
-            service_level="",
-            usage="",
-        )
-        self.mock_installed_products.write_cache.assert_called()
-
-        mock_persist_consumer.assert_called_once_with(expected_consumer)
-        mock_write_cache.assert_called_once()
-        expected_plugin_calls = [
-            mock.call("pre_register_consumer", name="name", facts={}),
-            mock.call("post_register_consumer", consumer=expected_consumer, facts={}),
-        ]
-        self.assertEqual(expected_plugin_calls, self.mock_pm.run.call_args_list)
-        assert "owner" not in consumer
+        with self.assertRaises(exceptions.ServiceError) as exc_info:
+            register_service.register("org", name="name", environments=["environment"])
+            self.assertEqual(
+                str(exc_info.exception),
+                "Registration is only possible when the organization is in Simple Content Access Mode.",
+            )
 
     @mock.patch("rhsmlib.services.register.syspurposelib.write_syspurpose_cache", return_value=True)
     @mock.patch("rhsmlib.services.register.managerlib.persist_consumer_cert")
@@ -391,13 +643,14 @@ class RegisterServiceTest(InjectionMockingTest):
 
         self.assertIsNotNone(org)
 
-        register_service.register(org, name="name", environments="environment")
+        register_service.register(org, name="name")
 
         self.mock_cp.registerConsumer.assert_called_once_with(
             name="name",
             facts={},
             owner="snowwhite",
-            environments="environment",
+            environments=None,
+            environment_names=None,
             keys=None,
             installed_products=[],
             jwt_token=None,
@@ -438,6 +691,7 @@ class RegisterServiceTest(InjectionMockingTest):
             facts={},
             owner="org",
             environments=None,
+            environment_names=None,
             keys=[1],
             installed_products=[],
             jwt_token=None,
@@ -523,6 +777,7 @@ class RegisterServiceTest(InjectionMockingTest):
             addons=["addon1"],
             content_tags=[],
             environments=None,
+            environment_names=None,
             facts={},
             installed_products=[],
             jwt_token=None,
@@ -548,15 +803,6 @@ class RegisterServiceTest(InjectionMockingTest):
         self.mock_identity.is_valid.return_value = False
         options = self._build_options(activation_keys=[1])
         with self.assertRaisesRegex(exceptions.ValidationError, r".*do not require user credentials.*"):
-            register.RegisterService(self.mock_cp).validate_options(options)
-
-    def test_does_not_allow_environment_with_activation_keys(self):
-        self.mock_cp.username = None
-        self.mock_cp.password = None
-
-        self.mock_identity.is_valid.return_value = False
-        options = self._build_options(activation_keys=[1], environments="environment")
-        with self.assertRaisesRegex(exceptions.ValidationError, r".*do not allow environments.*"):
             register.RegisterService(self.mock_cp).validate_options(options)
 
     def test_does_not_allow_environment_with_consumerid(self):

@@ -24,7 +24,7 @@ import signal
 import socket
 import syslog
 import uuid
-from typing import Callable, Dict, Iterable, Iterator, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, Iterable, Iterator, Optional, Tuple, TYPE_CHECKING
 
 import urllib
 
@@ -202,8 +202,7 @@ def is_simple_content_access(
     # When identity is not known, then system is not registered
     if identity.uuid is None:
         return False
-    content_access_mode = inj.require(inj.CONTENT_ACCESS_MODE_CACHE).read_data(uep=uep)
-    return content_access_mode == "org_environment"
+    return True
 
 
 def get_current_owner(uep: Optional["UEPConnection"] = None, identity: "Identity" = None) -> dict:
@@ -569,24 +568,6 @@ def print_error(message: str) -> None:
     """
     sys.stderr.write(message)
     sys.stderr.write("\n")
-
-
-def unique_list_items(items: Iterable, hash_function: Callable = lambda x: x) -> list:
-    """
-    Accepts a list of items.
-    Returns a list of the unique items in the input.
-    Maintains order.
-    """
-    observed = set()
-    unique_items = []
-    for item in items:
-        item_key = hash_function(item)
-        if item_key in observed:
-            continue
-        else:
-            unique_items.append(item)
-            observed.add(item_key)
-    return unique_items
 
 
 def generate_correlation_id() -> str:

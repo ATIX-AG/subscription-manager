@@ -29,27 +29,23 @@ from rhsm.https import ssl
 from rhsm.utils import LiveStatusMessage
 
 from rhsmlib.facts.hwprobe import ClassicCheck
-from rhsmlib.services import attach, unregister, register, exceptions
+from rhsmlib.services import unregister, register, exceptions
 
 from subscription_manager import identity
 from subscription_manager.branding import get_branding
 from subscription_manager.cli import system_exit
 from subscription_manager.cli_command.cli import handle_exception, conf
 from subscription_manager.cli_command.environments import MULTI_ENV
-from subscription_manager.cli_command.list import show_autosubscribe_output
 from subscription_manager.cli_command.user_pass import UserPassCommand
 from subscription_manager.entcertlib import CONTENT_ACCESS_CERT_CAPABILITY
 from subscription_manager.i18n import ugettext as _
 from subscription_manager.utils import (
     restart_virt_who,
-    print_error,
     get_supported_resources,
-    is_simple_content_access,
     is_interactive,
     is_process_running,
 )
 from subscription_manager.cli_command.environments import check_set_environment_names
-from subscription_manager.exceptions import ExceptionMapper
 
 log = logging.getLogger(__name__)
 
@@ -107,17 +103,6 @@ class RegisterCommand(UserPassCommand):
             help=_("set a release version"),
         )
         self.parser.add_argument(
-            "--autosubscribe",
-            action="store_true",
-            help=_("Deprecated, see --auto-attach"),
-        )
-        self.parser.add_argument(
-            "--auto-attach",
-            action="store_true",
-            dest="autoattach",
-            help=_("automatically attach compatible subscriptions to this system"),
-        )
-        self.parser.add_argument(
             "--force",
             action="store_true",
             help=_("include an implicit attempt to unregister before registering a new system identity"),
@@ -128,19 +113,13 @@ class RegisterCommand(UserPassCommand):
             dest="activation_keys",
             help=_("activation key to use for registration (can be specified more than once)"),
         )
-        self.parser.add_argument(
-            "--servicelevel",
-            dest="service_level",
-            help=_("system preference used when subscribing automatically, requires --auto-attach"),
-        )
 
     def _validate_options(self):
-        self.autoattach = self.options.autosubscribe or self.options.autoattach
         if self.is_registered() and not self.options.force:
             system_exit(os.EX_USAGE, _("This system is already registered. Use --force to override"))
         elif self.options.consumername == "":
             system_exit(os.EX_USAGE, _("Error: system name can not be empty."))
-        elif (self.options.username or self.options.token) and self.options.activation_keys:
+        elif self.options.username and self.options.activation_keys:
             system_exit(os.EX_USAGE, _("Error: Activation keys do not require user credentials."))
         elif self.options.consumerid and self.options.activation_keys:
             system_exit(
@@ -148,13 +127,9 @@ class RegisterCommand(UserPassCommand):
             )
         elif self.options.environments and self.options.activation_keys:
             system_exit(os.EX_USAGE, _("Error: Activation keys do not allow environments to be specified."))
-        elif self.autoattach and self.options.activation_keys:
-            system_exit(os.EX_USAGE, _("Error: Activation keys cannot be used with --auto-attach."))
         # 746259: Don't allow the user to pass in an empty string as an activation key
         elif self.options.activation_keys and "" in self.options.activation_keys:
             system_exit(os.EX_USAGE, _("Error: Must specify an activation key"))
-        elif self.options.service_level and not self.autoattach:
-            system_exit(os.EX_USAGE, _("Error: Must use --auto-attach with --servicelevel."))
         elif self.options.activation_keys and not self.options.org:
             system_exit(os.EX_USAGE, _("Error: Must provide --org with activation keys."))
         elif self.options.force and self.options.consumerid:
@@ -181,37 +156,6 @@ class RegisterCommand(UserPassCommand):
         to the config file so that future commands will use the value.
         """
         return True
-
-    def _do_auto_attach(self, consumer):
-        """
-        Try to do auto-attach, when it was requested using --auto-attach CLI option
-        :return: None
-        """
-
-        # Do not try to do auto-attach, when simple content access mode is used
-        # Only print info message to stdout
-        if is_simple_content_access(uep=self.cp, identity=self.identity):
-            self._print_ignore_auto_attach_message()
-            return
-
-        if "serviceLevel" not in consumer and self.options.service_level:
-            system_exit(
-                os.EX_UNAVAILABLE,
-                _(
-                    "Error: The --servicelevel option is not supported "
-                    "by the server. Did not complete your request."
-                ),
-            )
-        try:
-            # We don't call auto_attach with self.option.service_level, because it has been already
-            # set during service.register() call
-            attach.AttachService(self.cp).attach_auto(service_level=None)
-        except connection.RestlibException as rest_lib_err:
-            mapped_message: str = ExceptionMapper().get_message(rest_lib_err)
-            print_error(mapped_message)
-        except Exception:
-            log.exception("Auto-attach failed")
-            raise
 
     def _upload_profile_blocking(self, consumer: dict) -> None:
         """
@@ -313,9 +257,7 @@ class RegisterCommand(UserPassCommand):
 
         # Proceed with new registration:
         try:
-            if self.options.token:
-                admin_cp = self.cp_provider.get_keycloak_auth_cp(self.options.token)
-            elif not self.options.activation_keys:
+            if not self.options.activation_keys:
                 hostname = conf["server"]["hostname"]
                 if ":" in hostname:
                     normalized_hostname = "[{hostname}]".format(hostname=hostname)
@@ -355,7 +297,6 @@ class RegisterCommand(UserPassCommand):
                     force=self.options.force,
                     name=self.options.consumername,
                     consumer_type=self.options.consumertype,
-                    service_level=self.options.service_level,
                 )
         except (connection.RestlibException, exceptions.ServiceError) as re:
             log.exception(re)
@@ -367,8 +308,6 @@ class RegisterCommand(UserPassCommand):
             consumer_info = identity.ConsumerIdentity(consumer["idCert"]["key"], consumer["idCert"]["cert"])
             print(_("The system has been registered with ID: {id}").format(id=consumer_info.getConsumerId()))
             print(_("The registered system name is: {name}").format(name=consumer_info.getConsumerName()))
-            if self.options.service_level:
-                print(_("Service level set to: {level}").format(level=self.options.service_level))
 
         # We have new credentials, restart virt-who
         restart_virt_who()
@@ -402,13 +341,9 @@ class RegisterCommand(UserPassCommand):
             # TODO: grab the list of valid options, and check
             self.cp.updateConsumer(consumer["uuid"], release=self.options.release)
 
-        if self.autoattach:
-            self._do_auto_attach(consumer)
-
         if (
             self.options.consumerid
             or self.options.activation_keys
-            or self.autoattach
             or self.cp.has_capability(CONTENT_ACCESS_CERT_CAPABILITY)
         ):
             log.debug("System registered, updating entitlements if needed")
@@ -418,15 +353,7 @@ class RegisterCommand(UserPassCommand):
 
         self._upload_profile(consumer)
 
-        subscribed = 0
-        if self.options.activation_keys or self.autoattach:
-            # update with the latest cert info
-            self.sorter = inj.require(inj.CERT_SORTER)
-            self.sorter.force_cert_check()
-            subscribed = show_autosubscribe_output(self.cp, self.identity)
-
         self._request_validity_check()
-        return subscribed
 
     def _prompt_for_environment(self):
         """

@@ -18,11 +18,17 @@ from typing import Callable, Optional
 from rhsm.connection import UEPConnection
 
 from rhsmlib.services import exceptions
+from rhsmlib.services.unregister import UnregisterService
 
 from subscription_manager import injection as inj
 from subscription_manager import managerlib
 from subscription_manager import syspurposelib
 from subscription_manager.i18n import ugettext as _
+
+import typing
+
+if typing.TYPE_CHECKING:
+    from subscription_manager.cp_provider import CPProvider
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +46,8 @@ class RegisterService:
         org: Optional[str],
         activation_keys: list = None,
         environments: list = None,
+        environment_names: list = None,
+        environment_type: str = None,
         force: bool = False,
         name: str = None,
         consumerid: str = None,
@@ -49,7 +57,7 @@ class RegisterService:
         service_level: str = None,
         usage: str = None,
         jwt_token: str = None,
-        **kwargs: dict
+        **kwargs: dict,
     ) -> dict:
         # We accept a kwargs argument so that the DBus object can pass the options dictionary it
         # receives transparently to the service via dictionary unpacking.  This strategy allows the
@@ -59,6 +67,11 @@ class RegisterService:
         # signature we want to consider that an error.
         if kwargs:
             raise exceptions.ValidationError(_("Unknown arguments: %s") % kwargs.keys())
+
+        if environments is not None and environment_names is not None:
+            raise exceptions.ValidationError(
+                _("Environment IDs and environment names are mutually exclusive")
+            )
 
         syspurpose = syspurposelib.read_syspurpose()
 
@@ -89,6 +102,7 @@ class RegisterService:
         options = {
             "activation_keys": activation_keys,
             "environments": environments,
+            "environment_names": environment_names,
             "force": force,
             "name": name,
             "consumerid": consumerid,
@@ -117,6 +131,7 @@ class RegisterService:
                 facts=facts_dict,
                 owner=org,
                 environments=environments,
+                environment_names=environment_names,
                 keys=options.get("activation_keys"),
                 installed_products=self.installed_mgr.format_for_server(),
                 content_tags=self.installed_mgr.tags,
@@ -129,12 +144,68 @@ class RegisterService:
             )
             # When new consumer is created, then close all existing connections
             # to be able to recreate new one
-            cp_provider = inj.require(inj.CP_PROVIDER)
+            cp_provider: CPProvider = inj.require(inj.CP_PROVIDER)
             cp_provider.close_all_connections()
+
+        # If environment type was specified, then check that all returned
+        # environments have required type. Otherwise, raise exception
+        wrong_env_names = []
+        if environment_type is not None:
+            for environment in consumer.get("environments", []):
+                env_type = environment.get("type", None)
+                if env_type != environment_type:
+                    environment_name = environment["name"]
+                    log.error(
+                        f"Environment: '{environment_name}' does not have required type: '{environment_type},"
+                        f" it has '{env_type}' type"
+                    )
+                    wrong_env_names.append(environment_name)
+
+        managerlib.persist_consumer_cert(consumer)
+
+        if len(wrong_env_names) > 0:
+            # We will not use this consumer object. Thus, delete this object
+            # on the server
+            self.identity.reload()
+            UnregisterService(inj.require(inj.CP_PROVIDER).get_consumer_auth_cp()).unregister()
+            if len(wrong_env_names) == 1:
+                raise exceptions.ServiceError(
+                    _(
+                        "Environment: '{env_names}' does not have required type '{environment_type}'".format(
+                            env_names=wrong_env_names[0], environment_type=environment_type
+                        )
+                    )
+                )
+            else:
+                raise exceptions.ServiceError(
+                    _(
+                        "Environments: '{env_names}' do not have required type '{environment_type}'".format(
+                            env_names=", ".join(wrong_env_names), environment_type=environment_type
+                        )
+                    )
+                )
+
+        access_mode: str = consumer.get("owner", {}).get("contentAccessMode", "unknown")
+        if access_mode != "org_environment":
+            log.error(
+                f"Organization's content access mode is '{access_mode}'. "
+                "Only Simple Content Access ('org_environment') is allowed. "
+                "Unregistering."
+            )
+
+            # Use newly saved certificate to unregister the system; the presence of identity
+            # certificate does not mean we can get content.
+            self.identity.reload()
+            UnregisterService(inj.require(inj.CP_PROVIDER).get_consumer_auth_cp()).unregister()
+            raise exceptions.ServiceError(
+                _(
+                    "Registration is only possible when the organization "
+                    "is in Simple Content Access (SCA) mode."
+                )
+            )
 
         self.installed_mgr.write_cache()
         self.plugin_manager.run("post_register_consumer", consumer=consumer, facts=facts_dict)
-        managerlib.persist_consumer_cert(consumer)
 
         # Now that we are registered, load the new identity
         self.identity.reload()
@@ -158,26 +229,6 @@ class RegisterService:
 
         # Save syspurpose attributes from consumer to cache file
         syspurposelib.write_syspurpose_cache(syspurpose_dict)
-
-        content_access_mode_cache = inj.require(inj.CONTENT_ACCESS_MODE_CACHE)
-
-        # Is information about content access mode included in consumer
-        if "owner" not in consumer:
-            log.warning("Consumer does not contain any information about owner.")
-        elif "contentAccessMode" in consumer["owner"]:
-            log.debug("Saving content access mode from consumer object to cache file.")
-            # When we know content access mode from consumer, then write it to cache file
-            content_access_mode = consumer["owner"]["contentAccessMode"]
-            content_access_mode_cache.set_data(content_access_mode, self.identity)
-            content_access_mode_cache.write_cache()
-        else:
-            # If not, then we have to do another REST API call to get this information
-            # It will not be included in cache file. When cache file is empty, then
-            # it will trigger accessing REST API and saving result in cache file.
-            log.debug("Information about content access mode is not included in consumer")
-            content_access_mode = content_access_mode_cache.read_data()
-            # Add information about content access mode to consumer
-            consumer["owner"]["contentAccessMode"] = content_access_mode
 
         return consumer
 
@@ -213,16 +264,11 @@ class RegisterService:
                 raise exceptions.ValidationError(
                     _("Error: Activation keys can not be used with previously" " registered IDs.")
                 )
-            elif options["environments"]:
-                raise exceptions.ValidationError(
-                    _("Error: Activation keys do not allow environments to be" " specified.")
-                )
         elif options.get("jwt_token") is not None:
             # TODO: add more checks here
             pass
         elif not getattr(self.cp, "username", None) or not getattr(self.cp, "password", None):
-            if not getattr(self.cp, "token", None):
-                raise exceptions.ValidationError(_("Error: Missing username or password."))
+            raise exceptions.ValidationError(_("Error: Missing username or password."))
 
     def determine_owner_key(self, username: str, get_owner_cb: Callable, no_owner_cb: Callable) -> str:
         """

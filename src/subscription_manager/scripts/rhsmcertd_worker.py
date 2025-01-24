@@ -31,7 +31,7 @@ import subscription_manager.injection as inj
 from subscription_manager import cache
 from subscription_manager import entcertlib
 from subscription_manager import managerlib
-from subscription_manager.action_client import HealingActionClient, ActionClient
+from subscription_manager.action_client import ActionClient
 from subscription_manager.i18n import ugettext as _
 from subscription_manager.i18n_argparse import ArgumentParser, USAGE
 from subscription_manager.identity import Identity, ConsumerIdentity
@@ -160,6 +160,25 @@ def _collect_cloud_info(cloud_list: List[str]) -> dict:
     return result
 
 
+def _auto_register_wait() -> None:
+    """Delay during the automatic registration.
+
+    Wait for an amount of time during automatic registration, looking at the
+    configured splay and autoregistration interval.
+    """
+    cfg = config.get_config_parser()
+    if cfg.get("rhsmcertd", "splay") == "0":
+        log.debug("Trying to obtain the identity immediately, splay is disabled.")
+    else:
+        registration_interval = int(cfg.get("rhsmcertd", "auto_registration_interval"))
+        splay_interval: int = random.randint(60, registration_interval * 60)
+        log.debug(
+            f"Waiting a period of {splay_interval} seconds "
+            f"(about {splay_interval // 60} minutes) before attempting to obtain the identity."
+        )
+        time.sleep(splay_interval)
+
+
 def _auto_register(cp_provider: "CPProvider") -> ExitStatus:
     """Try to perform automatic registration.
 
@@ -191,7 +210,7 @@ def _auto_register(cp_provider: "CPProvider") -> ExitStatus:
 
     # Obtain automatic registration token
     try:
-        token: Dict[str, str] = cache.CloudTokenCache.get(
+        token: Dict[str, str] = cache.CloudTokenCache._get_from_server(
             uep=uep,
             cloud_id=cloud_info["cloud_id"],
             metadata=cloud_info["metadata"],
@@ -201,29 +220,14 @@ def _auto_register(cp_provider: "CPProvider") -> ExitStatus:
         log.exception("Cloud token could not be obtained. Unable to perform automatic registration.")
         return ExitStatus.NO_REGISTRATION_TOKEN
 
-    if token["tokenType"] == "CP-Cloud-Registration":
-        try:
-            _auto_register_standard(uep=uep, token=token)
-        except Exception:
-            log.exception("Standard automatic registration failed.")
-            return ExitStatus.REGISTRATION_FAILED
-        else:
-            log.info("Standard automatic registration was successful.")
-            return ExitStatus.OK
-
-    if token["tokenType"] == "CP-Anonymous-Cloud-Registration":
-        try:
-            _auto_register_anonymous(uep=uep, token=token)
-            cache.CloudTokenCache.delete_cache()
-        except Exception:
-            log.exception("Anonymous automatic registration failed.")
-            return ExitStatus.REGISTRATION_FAILED
-        else:
-            log.info("Anonymous automatic registration was successful.")
-            return ExitStatus.OK
-
-    log.error(f"Unsupported token type for automatic registration: {token['tokenType']}.")
-    return ExitStatus.BAD_TOKEN_TYPE
+    try:
+        _auto_register_standard(uep=uep, token=token)
+    except Exception:
+        log.exception("Standard automatic registration failed.")
+        return ExitStatus.REGISTRATION_FAILED
+    else:
+        log.info("Standard automatic registration was successful.")
+        return ExitStatus.OK
 
 
 def _auto_register_standard(uep: "UEPConnection", token: Dict[str, str]) -> None:
@@ -235,8 +239,10 @@ def _auto_register_standard(uep: "UEPConnection", token: Dict[str, str]) -> None
     """
     log.debug("Registering the system through standard automatic registration.")
 
+    _auto_register_wait()
+
     service = RegisterService(cp=uep)
-    service.register(org=None, jwt_token=token["token"])
+    service.register(org=None, jwt_token=token)
 
 
 def _auto_register_anonymous(uep: "UEPConnection", token: Dict[str, str]) -> None:
@@ -260,17 +266,7 @@ def _auto_register_anonymous(uep: "UEPConnection", token: Dict[str, str]) -> Non
     manager.install_temporary_certificates(uuid=token["anonymousConsumerUuid"], jwt=token["token"])
 
     # Step 2: Wait
-    cfg = config.get_config_parser()
-    if cfg.get("rhsmcertd", "splay") == "0":
-        log.debug("Trying to obtain the identity immediately, splay is disabled.")
-    else:
-        registration_interval = int(cfg.get("rhsmcertd", "auto_registration_interval"))
-        splay_interval: int = random.randint(60, registration_interval * 60)
-        log.debug(
-            f"Waiting a period of {splay_interval} seconds "
-            f"(about {splay_interval // 60} minutes) before attempting to obtain the identity."
-        )
-        time.sleep(splay_interval)
+    _auto_register_wait()
 
     # Step 3: Obtain the identity certificate
     log.debug("Obtaining system identity")
@@ -292,15 +288,20 @@ def _auto_register_anonymous(uep: "UEPConnection", token: Dict[str, str]) -> Non
             log.debug(report)
             return
         except connection.RateLimitExceededException as exc:
-            if exc.headers.get("Retry-After", None) is None:
+            if exc.retry_after is None:
+                log.warning(
+                    "Server did not include Retry-After header in rate-limited response. "
+                    f"headers={exc.headers}"
+                )
                 raise
-            delay = int(exc.headers["Retry-After"])
+            delay = exc.retry_after
             log.debug(
                 f"Got response with status code {exc.code} and Retry-After header, "
                 f"will try again in {delay} seconds."
             )
             time.sleep(delay)
-        except Exception:
+        except Exception as exc:
+            log.warning(f"Anonymous registration failed, server returned {exc}.")
             raise
 
     # In theory, this should not happen, it means that something has gone wrong server-side.
@@ -345,11 +346,7 @@ def _main(args: "argparse.Namespace"):
     uep.supports_resource(None)
 
     try:
-        if args.autoheal:
-            action_client = HealingActionClient()
-        else:
-            action_client = ActionClient()
-
+        action_client = ActionClient()
         action_client.update()
 
         for update_report in action_client.update_reports:
@@ -381,13 +378,6 @@ def main():
     logutil.init_logger()
 
     parser = ArgumentParser(usage=USAGE)
-    parser.add_argument(
-        "--autoheal",
-        dest="autoheal",
-        action="store_true",
-        default=False,
-        help="perform an autoheal check",
-    )
     parser.add_argument("--force", dest="force", action="store_true", default=False, help=SUPPRESS)
     parser.add_argument(
         "--auto-register",

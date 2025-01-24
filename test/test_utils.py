@@ -19,7 +19,6 @@ from subscription_manager.utils import (
     format_baseurl,
     get_version,
     get_client_versions,
-    unique_list_items,
     get_server_versions,
     friendly_join,
     is_true_value,
@@ -585,22 +584,6 @@ class TestTrueValue(fixture.SubManFixture):
         self.assertFalse(is_true_value("f"))
 
 
-class TestUniqueListItems(fixture.SubManFixture):
-    def test_preserves_order(self):
-        input_list = [1, 1, 2, 2, 3, 3]
-        expected = [1, 2, 3]
-        self.assertEqual(expected, unique_list_items(input_list))
-
-    def test_hash_function(self):
-        mock_item_1 = Mock()
-        mock_item_1.value = 1
-        mock_item_2 = Mock()
-        mock_item_2.value = 2
-        input_list = [mock_item_1, mock_item_1, mock_item_2, mock_item_2]
-        expected = [mock_item_1, mock_item_2]
-        self.assertEqual(expected, unique_list_items(input_list, lambda x: x.value))
-
-
 class TestProductCertificateFilter(fixture.SubManFixture):
     def test_set_filter_string(self):
         test_data = [
@@ -798,17 +781,12 @@ class TestIsOwnerUsingSimpleContentAccess(fixture.SubManFixture):
         super(TestIsOwnerUsingSimpleContentAccess, self).setUp()
         self.cp_provider = Mock()
         self.mock_uep = Mock()
-        self.mock_uep.getOwner = Mock(return_value=self.MOCK_ENTITLEMENT_OWNER)
+        self.mock_uep.getOwner = Mock(return_value=self.MOCK_ORG_ENVIRONMENT_OWNER)
         self.cp_provider.get_consumer_auth_cp = Mock(return_value=self.mock_uep)
         self.identity = Mock()
         self.identity.uuid = Mock(return_value="7f85da06-5c35-44ba-931d-f11f6e581f89")
 
-    def test_get_entitlement_owner(self):
-        ret = is_simple_content_access(uep=self.mock_uep, identity=self.identity)
-        self.assertFalse(ret)
-
     def test_get_org_environment_owner(self):
-        self.mock_uep.getOwner = Mock(return_value=self.MOCK_ORG_ENVIRONMENT_OWNER)
         ret = is_simple_content_access(uep=self.mock_uep, identity=self.identity)
         self.assertTrue(ret)
 

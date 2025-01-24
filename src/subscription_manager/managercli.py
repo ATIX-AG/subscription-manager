@@ -23,8 +23,6 @@ if TYPE_CHECKING:
 
 from subscription_manager import managerlib
 from subscription_manager.cli import CLI
-from subscription_manager.cli_command.attach import AttachCommand
-from subscription_manager.cli_command.autoheal import AutohealCommand
 from subscription_manager.cli_command.clean import CleanCommand
 from subscription_manager.cli_command.config import ConfigCommand
 from subscription_manager.cli_command.environments import EnvironmentsCommand
@@ -34,11 +32,9 @@ from subscription_manager.cli_command.list import ListCommand
 from subscription_manager.cli_command.override import OverrideCommand
 from subscription_manager.cli_command.owners import OwnersCommand
 from subscription_manager.cli_command.plugins import PluginsCommand
-from subscription_manager.cli_command.redeem import RedeemCommand
 from subscription_manager.cli_command.refresh import RefreshCommand
 from subscription_manager.cli_command.register import RegisterCommand
 from subscription_manager.cli_command.release import ReleaseCommand
-from subscription_manager.cli_command.remove import RemoveCommand
 from subscription_manager.cli_command.repos import ReposCommand
 from subscription_manager.cli_command.status import StatusCommand
 from subscription_manager.cli_command.syspurpose import SyspurposeCommand
@@ -61,16 +57,12 @@ class ManagerCLI(CLI):
             OwnersCommand,
             RefreshCommand,
             CleanCommand,
-            RedeemCommand,
             ReposCommand,
             ReleaseCommand,
             StatusCommand,
             EnvironmentsCommand,
             VersionCommand,
-            RemoveCommand,
-            AttachCommand,
             PluginsCommand,
-            AutohealCommand,
             OverrideCommand,
             FactsCommand,
             SyspurposeCommand,

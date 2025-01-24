@@ -500,10 +500,14 @@ class RateLimitExceededException(RestlibException):
     The retry_after attribute may not be included in the response.
     """
 
-    def __init__(self, code: int, msg: str = None, headers: str = None) -> None:
+    def __init__(self, code: int, msg: str = None, headers: dict = None) -> None:
         super(RateLimitExceededException, self).__init__(code, msg)
         self.headers = headers or {}
-        self.retry_after = safe_int(self.headers.get("retry-after"))
+        self.retry_after = None
+        for header, value in self.headers.items():
+            if header.lower() == "retry-after":
+                self.retry_after = safe_int(value)
+                break
         self.msg = msg or "Access rate limit exceeded"
         if self.retry_after is not None:
             self.msg += ", retry access after: %s seconds." % self.retry_after
@@ -1515,10 +1519,11 @@ class UEPConnection(BaseConnection):
         }
         headers = {
             "Content-Type": "application/json",
+            "Accept": "text/plain",
         }
 
         return self.conn.request_post(
-            method="/cloud/authorize?version=2",
+            method="/cloud/authorize",
             params=data,
             headers=headers,
             description=_("Fetching cloud token"),
@@ -1531,6 +1536,7 @@ class UEPConnection(BaseConnection):
         facts: Optional[dict] = None,
         owner: str = None,
         environments: str = None,
+        environment_names: str = None,
         keys: str = None,
         installed_products: list = None,
         uuid: str = None,
@@ -1576,6 +1582,11 @@ class UEPConnection(BaseConnection):
             for environment in environments.split(","):
                 env_list.append({"id": environment})
             params["environments"] = env_list
+        elif environment_names is not None and self.has_capability(MULTI_ENV):
+            env_name_list = []
+            for env_name in environment_names.split(","):
+                env_name_list.append({"name": env_name})
+            params["environments"] = env_name_list
 
         headers = {}
         if jwt_token:
@@ -1675,7 +1686,6 @@ class UEPConnection(BaseConnection):
         guest_uuids: Union[List[str], List[dict]] = None,
         service_level: str = None,
         release: str = None,
-        autoheal: bool = None,
         hypervisor_id: str = None,
         content_tags: set = None,
         role: str = None,
@@ -1706,8 +1716,6 @@ class UEPConnection(BaseConnection):
             params["facts"] = facts
         if release is not None:
             params["releaseVer"] = release
-        if autoheal is not None:
-            params["autoheal"] = autoheal
         if hypervisor_id is not None:
             params["hypervisorId"] = {"hypervisorId": hypervisor_id}
         if content_tags is not None:
@@ -1901,63 +1909,6 @@ class UEPConnection(BaseConnection):
             method, headers=headers, description=_("Fetching content for a certificate")
         )
 
-    def bindByEntitlementPool(self, consumerId: str, poolId: str, quantity: int = None) -> List[dict]:
-        """
-        Subscribe consumer to a subscription by pool ID
-        :param consumerId: consumer UUID
-        :param poolId: pool ID
-        :param quantity: the desired quantity of subscription to be consumed
-        """
-        method = "/consumers/%s/entitlements?pool=%s" % (self.sanitize(consumerId), self.sanitize(poolId))
-        if quantity:
-            method = "%s&quantity=%s" % (method, quantity)
-        return self.conn.request_post(method, description=_("Updating subscriptions"))
-
-    def bind(self, consumerId: str, entitle_date: datetime.datetime = None) -> List[dict]:
-        """
-        Same as bindByProduct, but assume the server has a list of the
-        system's products. This is useful for autosubscribe. Note that this is
-        done on a best-effort basis, and there are cases when the server will
-        not be able to fulfill the client's product certs with entitlements
-        :param consumerId: consumer UUID
-        :param entitle_date: The date, when subscription will be valid
-        """
-        method = "/consumers/%s/entitlements" % (self.sanitize(consumerId))
-
-        # add the optional date to the url
-        if entitle_date:
-            method = "%s?entitle_date=%s" % (method, self.sanitize(entitle_date.isoformat(), plus=True))
-
-        return self.conn.request_post(method, description=_("Updating subscriptions"))
-
-    def unbindBySerial(self, consumerId: str, serial: str) -> bool:
-        """
-        Try to remove consumed pool by serial number
-        :param consumerId: consumer UUID
-        :param serial: serial number of consumed pool
-        """
-        method = "/consumers/%s/certificates/%s" % (self.sanitize(consumerId), self.sanitize(str(serial)))
-        return self.conn.request_delete(method, description=_("Unsubscribing")) is None
-
-    def unbindByPoolId(self, consumer_uuid: str, pool_id: str) -> bool:
-        """
-        Try to remove consumed pool by pool ID
-        :param consumer_uuid: consumer UUID
-        :param pool_id: pool ID
-        :return: None
-        """
-        method = "/consumers/%s/entitlements/pool/%s" % (self.sanitize(consumer_uuid), self.sanitize(pool_id))
-        return self.conn.request_delete(method, description=_("Unsubscribing")) is None
-
-    def unbindAll(self, consumerId: str) -> dict:
-        """
-        Try to remove all consumed pools
-        :param consumerId: consumer UUID
-        :return: Dictionary containing statistics about removed pools
-        """
-        method = "/consumers/%s/entitlements" % self.sanitize(consumerId)
-        return self.conn.request_delete(method, description=_("Unsubscribing"))
-
     def getPoolsList(
         self,
         consumer: str = None,
@@ -2057,14 +2008,17 @@ class UEPConnection(BaseConnection):
         results = self.conn.request_get(method, description=_("Fetching service levels"))
         return results
 
-    def getEnvironmentList(self, owner_key: str) -> List[dict]:
+    def getEnvironmentList(self, owner_key: str, list_all: bool = False) -> List[dict]:
         """
         List the environments for a particular owner.
 
         Some servers may not support this and will error out. The caller
         can always check with supports_resource("environments").
         """
-        method = "/owners/%s/environments" % self.sanitize(owner_key)
+        if list_all and self.has_capability("typed_environments"):
+            method = "/owners/%s/environments?list_all=%r" % (self.sanitize(owner_key), list_all)
+        else:
+            method = "/owners/%s/environments" % (self.sanitize(owner_key))
         results = self.conn.request_get(method, description=_("Fetching environments"))
         return results
 
@@ -2146,22 +2100,6 @@ class UEPConnection(BaseConnection):
         if not params:
             params = []
         return self.conn.request_delete(method, params, description=_("Removing content overrides"))
-
-    def activateMachine(self, consumerId: str, email: str, lang: str = None) -> Union[dict, None]:
-        """
-        Activate a subscription by machine, information is located in the consumer facts
-        :param consumerId: consumer UUID
-        :param email: The email for sending notification. The notification will be sent by candlepin server
-        :param lang: The locale specifies the language of notification email
-        :return When activation was successful, then dictionary is returned. Otherwise, None is returned.
-        """
-        method = "/subscriptions?consumer_uuid=%s" % consumerId
-        method += "&email=%s" % self.sanitize(email)
-        if (not lang) and (locale.getdefaultlocale()[0] is not None):
-            lang = locale.getdefaultlocale()[0].lower().replace("_", "-")
-        if lang:
-            method += "&email_locale=%s" % self.sanitize(lang)
-        return self.conn.request_post(method, description=_("Activating"))
 
     # used by virt-who
     def getJob(self, job_id: str) -> str:

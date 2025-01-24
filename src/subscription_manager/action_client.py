@@ -26,7 +26,6 @@ if TYPE_CHECKING:
 
 from subscription_manager.entcertlib import EntCertActionInvoker
 from subscription_manager.identitycertlib import IdentityCertActionInvoker
-from subscription_manager.healinglib import HealingActionInvoker
 from subscription_manager.factlib import FactsActionInvoker
 from subscription_manager.packageprofilelib import PackageProfileActionInvoker
 from subscription_manager.installedproductslib import InstalledProductsActionInvoker
@@ -48,8 +47,7 @@ class ActionClient(base_action_client.BaseActionClient):
         self.syspurposelib = SyspurposeSyncActionInvoker()
 
         # WARNING: order is important here, we need to update a number
-        # of things before attempting to autoheal, and we need to autoheal
-        # before attempting to fetch our certificates:
+        # of things before attempting to fetch our certificates:
         lib_set: List[BaseActionInvoker] = [
             self.entcertlib,
             self.idcertlib,
@@ -58,23 +56,6 @@ class ActionClient(base_action_client.BaseActionClient):
             self.profilelib,
             self.installedprodlib,
             self.syspurposelib,
-        ]
-
-        return lib_set
-
-
-class HealingActionClient(base_action_client.BaseActionClient):
-    def _get_libset(self) -> List["BaseActionInvoker"]:
-        self.entcertlib = EntCertActionInvoker()
-        self.installedprodlib = InstalledProductsActionInvoker()
-        self.syspurposelib = SyspurposeSyncActionInvoker()
-        self.healinglib = HealingActionInvoker()
-
-        lib_set: List[BaseActionInvoker] = [
-            self.installedprodlib,
-            self.syspurposelib,
-            self.healinglib,
-            self.entcertlib,
         ]
 
         return lib_set

@@ -263,7 +263,7 @@ cmdclass = {
 
 setup(
     name="subscription-manager",
-    version="1.29.40",
+    version="1.30.3",
     url="http://www.candlepinproject.org",
     description="Manage subscriptions for Red Hat products.",
     license="GPLv2",
@@ -275,6 +275,7 @@ setup(
     entry_points={
         "console_scripts": [
             "subscription-manager = subscription_manager.scripts.subscription_manager:main",
+            "package-profile-upload = subscription_manager.scripts.package_profile_upload:main",
             "rct = subscription_manager.scripts.rct:main",
             "rhsm-debug = subscription_manager.scripts.rhsm_debug:main",
             "rhsm-facts-service = subscription_manager.scripts.rhsm_facts_service:main",

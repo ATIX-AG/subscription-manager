@@ -26,7 +26,6 @@ from subscription_manager.cli_command.cli import (
     ERR_NOT_REGISTERED_MSG,
 )
 from subscription_manager.cli_command.org import OrgCommand
-from subscription_manager.cli_command.list import ENVIRONMENT_LIST
 from subscription_manager.i18n import ugettext as _
 from subscription_manager.i18n import ungettext
 from subscription_manager.printing_utils import columnize, echo_columnize_callback
@@ -36,7 +35,13 @@ from subscription_manager.injection import require, IDENTITY
 
 
 log = logging.getLogger(__name__)
+
 MULTI_ENV = "multi_environment"
+
+ENVIRONMENT_LIST = [
+    _("Name:"),
+    _("Description:"),
+]
 
 
 class EnvironmentsCommand(OrgCommand):
@@ -89,14 +94,11 @@ class EnvironmentsCommand(OrgCommand):
         if "environments" not in supported_resources:
             system_exit(os.EX_UNAVAILABLE, _("Error: Server does not support environments."))
         try:
-            if self.options.token:
-                self.cp = self.cp_provider.get_keycloak_auth_cp(self.options.token)
-            else:
-                if not self.options.enabled:
-                    if self.options.username is None or self.options.password is None:
-                        print(_("This operation requires user credentials"))
-                    self.cp_provider.set_user_pass(self.username, self.password)
-                    self.cp = self.cp_provider.get_basic_auth_cp()
+            if not self.options.enabled:
+                if self.options.username is None or self.options.password is None:
+                    print(_("This operation requires user credentials"))
+                self.cp_provider.set_user_pass(self.username, self.password)
+                self.cp = self.cp_provider.get_basic_auth_cp()
             self.identity = require(IDENTITY)
             if self.options.set:
                 self._set_environments()

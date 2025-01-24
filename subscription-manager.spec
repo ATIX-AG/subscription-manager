@@ -95,7 +95,7 @@
 %global exclude_packages %{exclude_packages}"
 
 Name: subscription-manager
-Version: 1.29.40
+Version: 1.30.3
 Release: 1%{?dist}
 Summary: Tools and libraries for subscription and repository management
 %if 0%{?suse_version}
@@ -435,6 +435,9 @@ find %{buildroot} -name \*.py* -exec touch -r %{SOURCE0} '{}' \;
     ln -s %{_sbindir}/service %{buildroot}/%{_sbindir}/rcrhsmcertd
 %endif
 
+# Remove script which we only need in debian/ubuntu
+rm -f %{buildroot}%{_bindir}/package-profile-upload
+
 # base/cli tools use the gettext domain 'rhsm', while the
 # gnome-help tools use domain 'subscription-manager'
 %files -f rhsm.lang
@@ -526,6 +529,8 @@ find %{buildroot} -name \*.py* -exec touch -r %{SOURCE0} '{}' \;
 %{completion_dir}/rct
 %{completion_dir}/rhsm-debug
 %{completion_dir}/rhsmcertd
+
+%{_sysusersdir}/rhsm.conf
 
 %dir %{python_sitearch}/subscription_manager
 
@@ -657,7 +662,8 @@ find %{buildroot} -name \*.py* -exec touch -r %{SOURCE0} '{}' \;
 %attr(750,root,root) %dir %{_var}/cache/cloud-what
 %dir %{python_sitearch}/cloud_what
 %dir %{python_sitearch}/cloud_what/providers
-%{python_sitearch}/cloud_what/*
+%{python_sitearch}/cloud_what/*.py*
+%{python_sitearch}/cloud_what/providers/*.py*
 %{python_sitearch}/cloud_what/__pycache__
 %{python_sitearch}/cloud_what/providers/__pycache__
 
@@ -688,6 +694,10 @@ if [ "$1" = "2" ] ; then
     killall rhsmd 2> /dev/null || true
 fi
 %endif
+
+# Make all consumer certificates and keys readable by group rhsm
+find /etc/pki/consumer -mindepth 1 -maxdepth 1 -name '*.pem' | xargs --no-run-if-empty chgrp rhsm
+find /etc/pki/consumer -mindepth 1 -maxdepth 1 -name '*.pem' | xargs --no-run-if-empty chmod g+r
 
 # Make all entitlement certificates and keys files readable by group and other
 find /etc/pki/entitlement -mindepth 1 -maxdepth 1 -name '*.pem' | xargs --no-run-if-empty chmod go+r
@@ -733,8 +743,148 @@ rmdir %{python_sitearch}/subscription_manager-*-*.egg-info --ignore-fail-on-non-
 # Remove old cache files
 # The -f flag ensures that exit code 0 will be returned even if the file does not exist.
 rm -f /var/lib/rhsm/cache/rhsm_icon.json
+rm -f /var/lib/rhsm/cache/content_access_mode.json
 
 %changelog
+* Thu Dec 19 2024 Jiri Hnidek <jhnidek@redhat.com> 1.30.3-1
+- Card ID: CCT-731 - integration tests for DBus Register method
+  (jstavel@redhat.com)
+- chore: Remove the --token authentication (pkoprda@redhat.com)
+- chore: Remove artifacts of import (stomsa@redhat.com)
+- chore: Remove artifacts of redeem (stomsa@redhat.com)
+- chore: Remove artifacts of remove (stomsa@redhat.com)
+- chore: Remove artifacts of autoheal (glutexo@icloud.com)
+- chore: Remove artifacts of --auto-attach (glutexo@icloud.com)
+- chore: Remove artifacts of attach (stomsa@redhat.com)
+- fix: Added missing python packages (jhnidek@redhat.com)
+- fix: Fixed integration tests (jhnidek@redhat.com)
+- chore: Remove auto-assign CI job (mhorky@redhat.com)
+- feat: Add initial support for tmt (jhnidek@redhat.com)
+- fix: Renamed integration-tests to cockpit-tests (jhnidek@redhat.com)
+- Feat CCT-965: Include timezone in the logs In `subscription-
+  manager/src/rhsm/logutil.py`i: (mgrunwal@redhat.com)
+- feat: remove content access mode cache (jajerome@redhat.com)
+- feat: add GetEnvironments method to DBus register (ryanverdile@gmail.com)
+- feat: Added basic configuration for Packit (jhnidek@redhat.com)
+- fix: drop "autoattachinterval" from the rhsmcertd defaults
+  (ptoscano@redhat.com)
+- feat/cct-875: Options -i and --cert-interval were removed from rhsmcertd
+  command autocompletion Options -i and --cert-interval were removed from
+  rhsmcertd command autocompletion. (mgrunwal@mgrunwal-
+  thinkpadp1gen3.rmtcz.csb)
+- feat/cct-874: Autocompletion for option --servicelevel removed Autocompletion
+  for option --servicelevel (sub-man register --servicelevel) was removed.
+  (mgrunwal@mgrunwal-thinkpadp1gen3.rmtcz.csb)
+- fix: Handle Retry-After headers better for 429 responses (mhorky@redhat.com)
+- feat: Better automatic registration logging (mhorky@redhat.com)
+- refactor: Moved some definition of lists from list.py (jhnidek@redhat.com)
+- fix: Removed show_autosubscribe_output() method (jhnidek@redhat.com)
+- feat: Remove useless CLI options from list command (jhnidek@redhat.com)
+- fix: perform autoreg waiting when performing standard autoreg
+  (ptoscano@redhat.com)
+- chore: move autoreg waiting code in own function (ptoscano@redhat.com)
+- feat: support registering specifying environments with activation keys
+  (ryanverdile@gmail.com)
+- feat: Remove autoheal functionality from rhsmcertd (jvlcek@redhat.com)
+
+* Thu Sep 26 2024 Pino Toscano <ptoscano@redhat.com> 1.30.2-1
+- Translated using Weblate (Georgian) (temuri.doghonadze@gmail.com)
+- feat: Create consumer cert & key owner by rhsm group (jhnidek@redhat.com)
+- feat: Add rhsm group during installation of subman RPM (jhnidek@redhat.com)
+- feat: dnf plugin - outsource uploading of profile to rhsmcertd.
+  (jhnidek@redhat.com)
+- docs: remove references to removed commands (jajerome@redhat.com)
+- feat: Remove auto-attach command (jhnidek@redhat.com)
+- feat: Eliminate command 'remove' from subscription-manager
+  (jvlcek@redhat.com)
+- feat: Remove attach from bash completion script (jhnidek@redhat.com)
+- feat: Remove references on auto-attach in man page (jhnidek@redhat.com)
+- feat: Removed attach service (jhnidek@redhat.com)
+- feat: Removed D-Bus methods related to attach (jhnidek@redhat.com)
+- feat: Removed attach command and CLI option related to attach
+  (jhnidek@redhat.com)
+- feat: Remove 'addons' subcommand(s) (mhorky@redhat.com)
+- feat: Removed command "redeem" from subscription-manager (jhnidek@redhat.com)
+- Update the correct man page file. (jvlcek@redhat.com)
+- docs: Change reverse proxy to proxy in man page (jvlcek@redhat.com)
+- test(ci): Improve container pre-test script (mhorky@redhat.com)
+
+* Wed Aug 21 2024 Pino Toscano <ptoscano@redhat.com> 1.30.1-1
+- feat: forcefully switch automatic cloud registration to v1
+  (ptoscano@redhat.com)
+
+* Fri Aug 16 2024 Pino Toscano <ptoscano@redhat.com> 1.30.0-1
+- Translated using Weblate (Russian) (aleksejfedorov963@gmail.com)
+- Translated using Weblate (Korean) (simmon@nplob.com)
+- chore: Format register.py (mhorky@redhat.com)
+- feat: Require SCA for registration (mhorky@redhat.com)
+- doc: Update install and testing guide (stomsa@redhat.com)
+- Fixed spec file to list packages twice (suttner@atix.de)
+- code review comments fixes - update metadata and test. (chambrid@redhat.com)
+- feat: Disable anonymous cloud registration temporarily (mhorky@redhat.com)
+- Collect Azure VM Name and Resource Group Name as a cloud fact.
+  (chambrid@redhat.com)
+- fix: Improve wording in redhat.repo template (glutexo@icloud.com)
+- Remove commands moved to syspurpose (glutexo@icloud.com)
+- doc: drop references to "activate" (ptoscano@redhat.com)
+- feat: Remove import command (zpetrace@redhat.com)
+- fix: make SyspurposeComplianceStatusCache.get_overall_status() always usable
+  (ptoscano@redhat.com)
+- fix: Change order of checks (jhnidek@redhat.com)
+- fix: Cache shouldn't try to get data from server without UUID
+  (jhnidek@redhat.com)
+- feat: Add option to run smoke tests with fake IMDS servers.
+  (jhnidek@redhat.com)
+- fix: Hide subscription management "errors" in container mode
+  (mhorky@redhat.com)
+- feat(ci): Update testing matrix (mhorky@redhat.com)
+- fix(test): Properly stop method mock (mhorky@redhat.com)
+- feat: Azure: added extended location and type of location fact
+  (jhnidek@redhat.com)
+- fix: Update version of Azure metadata (jhnidek@redhat.com)
+- feat: Added Azure location to facts (jhnidek@redhat.com)
+- feat: Added zone GCP fact (jhnidek@redhat.com)
+- feat: Added more AWS cloud facts (jhnidek@redhat.com)
+- fix: Change type hint according returned value. (jhnidek@redhat.com)
+- feat: Add warning message about release version to dnf plugin
+  (jhnidek@redhat.com)
+- Bump black from 23.3.0 to 24.3.0
+  (49699333+dependabot[bot]@users.noreply.github.com)
+- Format code with black==24.3.0 (ptoscano@redhat.com)
+- Fix memory leaks in test-productdb.c (jhnidek@redhat.com)
+- Fix memory leaks in productdb.c (jhnidek@redhat.com)
+- fix: Function prototype without declaration is deprecated
+  (jhnidek@redhat.com)
+- Removed unused includes of .h files (jhnidek@redhat.com)
+- libdnf: switch from g_error_free() to g_clear_error() in tests
+  (ptoscano@redhat.com)
+- libdnf: do not build test code in plugin (ptoscano@redhat.com)
+- Change handling of deprecated `datetime.datetime.utcnow()`
+  (mhorky@redhat.com)
+- CCT-66: Update identity reporting in DNF plugin during autoregistration
+  (mhorky@redhat.com)
+- Remove automatic registration delay for rhsmcertd (mhorky@redhat.com)
+- Remove API endpoint for automatic cloud registration v1 (mhorky@redhat.com)
+- CCT-67: Use automatic registration v2 (mhorky@redhat.com)
+- IdentityUpdateAction: Improve logging for updating identity certificates
+  (mhorky@redhat.com)
+- Identity: Add method to extract current owner (mhorky@redhat.com)
+- rhsmcertd: Define exit codes (mhorky@redhat.com)
+- rhsmcertd: Use module-level logger (mhorky@redhat.com)
+- Add AnonymousCertificateManager (mhorky@redhat.com)
+- Add CloudTokenCache for Candlepin JWT (mhorky@redhat.com)
+- Implement API endpoints for Automatic registration v2 (mhorky@redhat.com)
+- Update documentation for one API call in connection.py (mhorky@redhat.com)
+- Fix type hint of RegisterService.register() (mhorky@redhat.com)
+- rhsmcertd: Drop D-Bus loop code (mhorky@redhat.com)
+- rhsmcertd: Add type hints (mhorky@redhat.com)
+- rhsmcertd: Remove forgotten old comment (mhorky@redhat.com)
+- Stop logging full lscpu output (mhorky@redhat.com)
+- Prevent double-logging of syspurpose cache log statement (mhorky@redhat.com)
+- Update the log message containing response time statistics
+  (mhorky@redhat.com)
+- CCT-266: Update TLS flags (mhorky@redhat.com)
+
 * Thu Jan 18 2024 Pino Toscano <ptoscano@redhat.com> 1.29.40-1
 - Translated using Weblate (Korean) (simmon@nplob.com)
 - Translated using Weblate (Chinese (Simplified) (zh_CN))

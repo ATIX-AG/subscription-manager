@@ -32,7 +32,6 @@ from subscription_manager.cache import (
     AvailableEntitlementsCache,
     SyspurposeValidFieldsCache,
     CurrentOwnerCache,
-    ContentAccessModeCache,
     SyspurposeComplianceStatusCache,
 )
 from subscription_manager.facts import Facts
@@ -483,8 +482,6 @@ class StubUEP:
         self.environment_list = []
         self.called_unregister_uuid = None
         self.called_unbind_uuid = None
-        self.called_unbind_serial = []
-        self.called_unbind_pool_id = []
         self.username = username
         self.password = password
         self._capabilities = []
@@ -495,8 +492,6 @@ class StubUEP:
     def reset(self):
         self.called_unregister_uuid = None
         self.called_unbind_uuid = None
-        self.called_unbind_serial = []
-        self.called_unbind_pool_id = []
 
     def has_capability(self, capability):
         return capability in self._capabilities
@@ -536,7 +531,6 @@ class StubUEP:
         guest_uuids=None,
         service_level=None,
         release=None,
-        autoheal=None,
         content_tags=None,
         addons=None,
         role=None,
@@ -563,12 +557,6 @@ class StubUEP:
 
     def unbindAll(self, consumer):
         self.called_unbind_uuid = consumer
-
-    def unbindBySerial(self, consumer, serial):
-        self.called_unbind_serial.append(serial)
-
-    def unbindByPoolId(self, consumer_uuid, pool_id):
-        self.called_unbind_pool_id.append(pool_id)
 
     def getCertificateSerials(self, consumer):
         return []
@@ -734,6 +722,9 @@ class StubCPProvider:
     def get_content_connection(self):
         return self.content_connection
 
+    def close_all_connections(self):
+        pass
+
 
 class StubEntitlementStatusCache(EntitlementStatusCache):
     def write_cache(self, debug=False):
@@ -776,14 +767,6 @@ class StubReleaseStatusCache(ReleaseStatusCache):
 
 
 class StubAvailableEntitlementsCache(AvailableEntitlementsCache):
-    def write_cache(self, debug=False):
-        pass
-
-    def delete_cache(self):
-        self.server_status = None
-
-
-class StubContentAccessModeCache(ContentAccessModeCache):
     def write_cache(self, debug=False):
         pass
 

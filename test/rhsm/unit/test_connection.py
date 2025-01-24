@@ -43,7 +43,6 @@ from subscription_manager.cache import ContentAccessCache
 import subscription_manager.injection as inj
 
 from unittest.mock import Mock, patch, mock_open
-from datetime import date
 from rhsm import ourjson as json
 from collections import namedtuple
 
@@ -206,24 +205,6 @@ class ConnectionTests(unittest.TestCase):
         self.cp.conn.headers = {}
         self.cp.conn._set_accept_language_in_header()
         self.assertEqual(self.cp.conn.headers["Accept-Language"], "ja-jp")
-
-    def test_entitle_date(self):
-        self.cp.conn = Mock()
-        self.cp.conn.request_post = Mock(return_value=[])
-        self.cp.bind("abcd", date(2011, 9, 2))
-        self.cp.conn.request_post.assert_called_with(
-            "/consumers/abcd/entitlements?entitle_date=2011-09-02",
-            description="Updating subscriptions",
-        )
-
-    def test_no_entitle_date(self):
-        self.cp.conn = Mock()
-        self.cp.conn.request_post = Mock(return_value=[])
-        self.cp.bind("abcd")
-        self.cp.conn.request_post.assert_called_with(
-            "/consumers/abcd/entitlements",
-            description="Updating subscriptions",
-        )
 
     def test_clean_up_prefix(self):
         self.assertTrue(self.cp.handler == "/Test/")
@@ -862,6 +843,18 @@ class BaseRestLibValidateResponseTests(unittest.TestCase):
     def test_429_body(self):
         content = '{"errors": ["TooFast"]}'
         headers = {"retry-after": 20}
+        try:
+            self.vr("429", content, headers)
+        except RateLimitExceededException as e:
+            self.assertEqual(20, e.retry_after)
+            self.assertEqual("TooFast, retry access after: 20 seconds.", e.msg)
+            self.assertEqual("429", e.code)
+        else:
+            self.fail("Should have raised a RateLimitExceededException")
+
+    def test_429_weird_case(self):
+        content = '{"errors": ["TooFast"]}'
+        headers = {"RETry-aFteR": 20}
         try:
             self.vr("429", content, headers)
         except RateLimitExceededException as e:

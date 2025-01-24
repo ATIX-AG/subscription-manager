@@ -25,15 +25,17 @@ import tempfile
 from iniparse import ConfigParser
 
 import rhsm.connection
-from subscription_manager import repofile
+from rhsm import repofile
 
 # repofile must be patched and reloaded to import AptRepofile, otherwise
 # the class is not defined in the first place
+apt_mock = MagicMock()
 deb_mock = MagicMock()
 deb_mock.Deb822 = dict
-with patch.dict("subscription_manager.repofile.sys.modules", {"debian.deb822": deb_mock}):
-    reload(repofile)
-    from subscription_manager.repofile import AptRepoFile
+with patch.dict("rhsm.repofile.sys.modules", {"apt": apt_mock}):
+    with patch.dict("rhsm.repofile.sys.modules", {"debian.deb822": deb_mock}):
+        reload(repofile)
+        from rhsm.repofile import AptRepoFile
 reload(repofile)
 
 from .stubs import (
@@ -52,7 +54,7 @@ from subscription_manager.repolib import (
     YumReleaseverSource,
     YumPluginManager,
 )
-from subscription_manager.repofile import Repo, TidyWriter, YumRepoFile
+from rhsm.repofile import Repo, TidyWriter, YumRepoFile
 from subscription_manager import injection as inj
 from rhsm.config import RhsmConfigParser
 from rhsmlib.services import config
@@ -907,14 +909,39 @@ class YumReleaseverSourceIsSetTest(fixture.SubManFixture):
 
 
 class AptRepoFileTest(unittest.TestCase):
+    keypath = "/etc/apt/trusted.gpg.d/"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+
+        cls.original_os_listdir = os.listdir
+
+        def mock_os_listdir(path):
+            """
+            This method mock missing /etc/apt/trusted.gpg.d/ directory
+            :param path: of this directory
+            :return: Empty array if path is equal to keypath, otherwise return os.listdir(path)
+            """
+            if path == cls.keypath:
+                return []
+            else:
+                return cls.original_os_listdir(path)
+
+        cls.patcher = patch("os.listdir", side_effect=mock_os_listdir)
+        cls.mock_exists = cls.patcher.start()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.patcher.stop()
+
     def _helper_stub_repo(self, *args, **kwargs):
-        with patch("subscription_manager.repofile.HAS_DEB822", True):
+        with patch("rhsm.repofile.HAS_DEB822", True):
             repo = Repo(*args, **kwargs)
         return repo
 
     def _helper_stub_repofile(self, *args, **kwargs):
         my_mock = MagicMock()
-        with patch("subscription_manager.repofile.RepoFileBase.create", my_mock):
+        with patch("rhsm.repofile.RepoFileBase.create", my_mock):
             repofile = AptRepoFile(*args, **kwargs)
         return repofile
 
@@ -1092,8 +1119,8 @@ class AptRepoFileTest(unittest.TestCase):
 
 
 class YumRepoFileTest(unittest.TestCase):
-    @patch("subscription_manager.repofile.YumRepoFile.create")
-    @patch("subscription_manager.repofile.TidyWriter")
+    @patch("rhsm.repofile.YumRepoFile.create")
+    @patch("rhsm.repofile.TidyWriter")
     def test_configparsers_equal(self, tidy_writer, stub_create):
         rf = YumRepoFile()
         other = RawConfigParser()
@@ -1102,8 +1129,8 @@ class YumRepoFileTest(unittest.TestCase):
             parser.set("test", "key", "val")
         self.assertTrue(rf._configparsers_equal(other))
 
-    @patch("subscription_manager.repofile.YumRepoFile.create")
-    @patch("subscription_manager.repofile.TidyWriter")
+    @patch("rhsm.repofile.YumRepoFile.create")
+    @patch("rhsm.repofile.TidyWriter")
     def test_configparsers_diff_sections(self, tidy_writer, stub_create):
         rf = YumRepoFile()
         rf.add_section("new_section")
@@ -1113,8 +1140,8 @@ class YumRepoFileTest(unittest.TestCase):
             parser.set("test", "key", "val")
         self.assertFalse(rf._configparsers_equal(other))
 
-    @patch("subscription_manager.repofile.YumRepoFile.create")
-    @patch("subscription_manager.repofile.TidyWriter")
+    @patch("rhsm.repofile.YumRepoFile.create")
+    @patch("rhsm.repofile.TidyWriter")
     def test_configparsers_diff_item_val(self, tidy_writer, stub_create):
         rf = YumRepoFile()
         other = RawConfigParser()
@@ -1124,8 +1151,8 @@ class YumRepoFileTest(unittest.TestCase):
         rf.set("test", "key", "val2")
         self.assertFalse(rf._configparsers_equal(other))
 
-    @patch("subscription_manager.repofile.YumRepoFile.create")
-    @patch("subscription_manager.repofile.TidyWriter")
+    @patch("rhsm.repofile.YumRepoFile.create")
+    @patch("rhsm.repofile.TidyWriter")
     def test_configparsers_diff_items(self, tidy_writer, stub_create):
         rf = YumRepoFile()
         other = RawConfigParser()
@@ -1135,8 +1162,8 @@ class YumRepoFileTest(unittest.TestCase):
         rf.set("test", "somekey", "val")
         self.assertFalse(rf._configparsers_equal(other))
 
-    @patch("subscription_manager.repofile.YumRepoFile.create")
-    @patch("subscription_manager.repofile.TidyWriter")
+    @patch("rhsm.repofile.YumRepoFile.create")
+    @patch("rhsm.repofile.TidyWriter")
     def test_configparsers_equal_int(self, tidy_writer, stub_create):
         rf = YumRepoFile()
         other = RawConfigParser()

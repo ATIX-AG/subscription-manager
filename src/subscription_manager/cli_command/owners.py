@@ -21,12 +21,16 @@ import rhsm.connection as connection
 
 from subscription_manager.cli import system_exit
 from subscription_manager.cli_command.cli import handle_exception
-from subscription_manager.cli_command.list import ORG_LIST
 from subscription_manager.cli_command.user_pass import UserPassCommand
 from subscription_manager.i18n import ugettext as _
 from subscription_manager.printing_utils import columnize, echo_columnize_callback
 
 log = logging.getLogger(__name__)
+
+ORG_LIST = [
+    _("Name:"),
+    _("Key:"),
+]
 
 
 class OwnersCommand(UserPassCommand):
@@ -40,11 +44,8 @@ class OwnersCommand(UserPassCommand):
     def _do_command(self):
         try:
             # get a UEP
-            if self.options.token:
-                self.cp = self.cp_provider.get_keycloak_auth_cp(self.options.token)
-            else:
-                self.cp_provider.set_user_pass(self.username, self.password)
-                self.cp = self.cp_provider.get_basic_auth_cp()
+            self.cp_provider.set_user_pass(self.username, self.password)
+            self.cp = self.cp_provider.get_basic_auth_cp()
             owners = self.cp.getOwnerList(self.username)
             log.debug("Successfully retrieved org list from server.")
             if len(owners):

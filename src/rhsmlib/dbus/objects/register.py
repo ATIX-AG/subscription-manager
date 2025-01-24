@@ -23,8 +23,8 @@ import subscription_manager.injection as inj
 from rhsmlib.dbus import constants, exceptions, dbus_utils, base_object, server, util
 from rhsmlib.services.register import RegisterService
 from rhsmlib.services.unregister import UnregisterService
-from rhsmlib.services.attach import AttachService
 from rhsmlib.services.entitlement import EntitlementService
+from rhsmlib.services.environment import EnvironmentService
 from rhsmlib.client_info import DBusSender
 from subscription_manager.cp_provider import CPProvider
 
@@ -36,6 +36,14 @@ if TYPE_CHECKING:
     from rhsm.connection import UEPConnection
 
 log = logging.getLogger(__name__)
+
+ENVIRONMENTS_KEYS_TO_FILTER: List[str] = [
+    "contentPrefix",
+    "created",
+    "environmentContent",
+    "owner",
+    "updated",
+]
 
 
 class RegisterDBusImplementation(base_object.BaseImplementation):
@@ -182,6 +190,25 @@ class DomainSocketRegisterDBusImplementation(base_object.BaseImplementation):
         owners: List[dict] = uep.getOwnerList(options["username"])
         return owners
 
+    def get_environments(self, options: dict) -> List[dict]:
+        """Get environments for every org belonging to user
+
+        :param options: Connection options including the 'username', 'password', and 'org_id' keys
+        :return: List of environments
+        """
+        uep: UEPConnection = self.build_uep(options, basic_auth_method=True)
+        environment_service: EnvironmentService = EnvironmentService(uep)
+
+        environments = environment_service.list(options["org_id"])
+
+        for environment in environments:
+            for key in ENVIRONMENTS_KEYS_TO_FILTER:
+                environment.pop(key, None)
+            if ("type" not in environment) or (environment["type"] is None):
+                environment["type"] = ""
+
+        return environments
+
     def register_with_credentials(
         self, organization: Optional[str], register_options: dict, connection_options: dict
     ) -> dict:
@@ -268,22 +295,12 @@ class DomainSocketRegisterDBusImplementation(base_object.BaseImplementation):
         return bool(options.pop("enable_content"))
 
     def _enable_content(self, uep: "UEPConnection", consumer: dict) -> None:
-        """Try to enable content: Auto-attach in non-SCA or refresh in SCA mode."""
+        """Try to enable content: refresh SCA entitlement certs in SCA mode."""
         content_access: str = consumer["owner"]["contentAccessMode"]
         enabled_content = None
 
         if content_access == "entitlement":
-            log.debug("Auto-attaching since 'enable_content' is true.")
-            service = AttachService(uep)
-            enabled_content = service.attach_auto()
-            if len(enabled_content) > 0:
-                log.debug("Updating entitlement certificates")
-                # FIXME: The enabled_content contains all data necessary for generating entitlement
-                # certificate and private key. Thus we could save few REST API calls, when the data was used.
-                EntCertActionInvoker().update()
-            else:
-                log.debug("No content was enabled, entitlement certificates not updated.")
-
+            log.error("Entitlement content access mode is not supported")
         elif content_access == "org_environment":
             log.debug("Refreshing since 'enable_content' is true.")
             service = EntitlementService(uep)
@@ -343,6 +360,40 @@ class DomainSocketRegisterDBusObject(base_object.BaseObject):
 
         self.sender = sender
         self.cmd_line = cmd_line
+
+    @dbus.service.method(
+        dbus_interface=constants.PRIVATE_REGISTER_INTERFACE,
+        in_signature="sssa{sv}s",
+        out_signature="s",
+    )
+    @util.dbus_handle_exceptions
+    def GetEnvironments(self, username, password, org_id, connection_options, locale):
+        """
+        This method tries to return list of environments in the given orgs. This method also uses
+        basic authentication method (using username and password).
+
+        :param username: string with username used for connection to candlepin server
+        :param password: string with password
+        :param org_id: string with org id to list environments for
+        :param connection_options: dictionary with connection options
+        :param locale: string with locale
+        :return: string with json returned by candlepin server
+        """
+        connection_options = dbus_utils.dbus_to_python(connection_options, expected_type=dict)
+        connection_options["username"] = dbus_utils.dbus_to_python(username, expected_type=str)
+        connection_options["password"] = dbus_utils.dbus_to_python(password, expected_type=str)
+        connection_options["org_id"] = dbus_utils.dbus_to_python(org_id, expected_type=str)
+        locale = dbus_utils.dbus_to_python(locale, expected_type=str)
+
+        with DBusSender() as dbus_sender:
+            dbus_sender.set_cmd_line(sender=self.sender, cmd_line=self.cmd_line)
+            Locale.set(locale)
+
+            environments = self.impl.get_environments(connection_options)
+
+            dbus_sender.reset_cmd_line()
+
+        return json.dumps(environments)
 
     @dbus.service.method(
         dbus_interface=constants.PRIVATE_REGISTER_INTERFACE,
@@ -409,8 +460,6 @@ class DomainSocketRegisterDBusObject(base_object.BaseObject):
         used.
 
         Options is a dict of strings that modify the outcome of this method.
-
-        Note this method is registration ONLY.  Auto-attach is a separate process.
         """
         org = dbus_utils.dbus_to_python(org, expected_type=str)
         connection_options = dbus_utils.dbus_to_python(connection_options, expected_type=dict)
@@ -435,7 +484,7 @@ class DomainSocketRegisterDBusObject(base_object.BaseObject):
     @util.dbus_handle_exceptions
     def RegisterWithActivationKeys(self, org, activation_keys, options, connection_options, locale):
         """
-        Note this method is registration ONLY.  Auto-attach is a separate process.
+        This method registers the system using organization and activation keys
         """
         connection_options = dbus_utils.dbus_to_python(connection_options, expected_type=dict)
         options = dbus_utils.dbus_to_python(options, expected_type=dict)

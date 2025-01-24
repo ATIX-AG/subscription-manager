@@ -23,18 +23,43 @@ import os
 import re
 import string
 import sys
+from importlib import util as importlib_util
 
 try:
+    import apt
     from debian.deb822 import Deb822
-
-    HAS_DEB822 = True
 except ImportError:
-    HAS_DEB822 = False
+    apt = None
+
+try:
+    import dnf
+except ImportError:
+    dnf = None
+
+try:
+    import libdnf
+except ImportError:
+    libdnf = None
+
+try:
+    import yum
+except ImportError:
+    yum = None
+
+try:
+    import zypp
+except ImportError:
+    zypp = None
+
+if importlib_util.find_spec("zypp_plugin") is not None:
+    HAS_ZYPP = True
+else:
+    HAS_ZYPP = False
 
 from subscription_manager import utils
 from subscription_manager.certdirectory import Path
 import configparser
-from urllib.parse import parse_qs, urlparse, urlunparse, urlencode
+from urllib.parse import parse_qs, urlparse, urlunparse, urlencode, unquote
 
 from rhsm.config import get_config_parser
 
@@ -52,6 +77,9 @@ repo_files = []
 
 # detect if running with yum, otherwise it's dnf
 HAS_YUM = "yum" in sys.modules
+
+# detect if running with apt
+HAS_DEB822 = apt is not None
 
 
 class Repo(dict):
@@ -139,7 +167,6 @@ class Repo(dict):
         repoid_vars = [part[1:] for part in repo_parts if part.startswith("$")]
         if HAS_YUM and repoid_vars:
             repo["ui_repoid_vars"] = " ".join(repoid_vars)
-
         # If no GPG key URL is specified, turn gpgcheck off:
         gpg_url = content.gpg
         if not gpg_url:
@@ -383,6 +410,9 @@ class RepoFileBase:
     def fix_content(self, content: str) -> str:
         return content
 
+    def enabled_repos(self):
+        raise NotImplementedError("'enabled_repos' is not implemented for this repo_file.")
+
     @classmethod
     def installed(cls) -> bool:
         return os.path.exists(Path.abs(cls.PATH))
@@ -461,7 +491,8 @@ if HAS_DEB822:
 
         def fix_content(self, content):
             # Luckily apt ignores all Fields it does not recognize
-            baseurl = content["baseurl"]
+            parsed_url = urlparse(unquote(content["baseurl"]))
+            baseurl = parsed_url._replace(query="").geturl()
             url_res = re.match(r"^https?://(?P<location>.*)$", baseurl)
             ent_res = re.match(r"^/etc/pki/entitlement/(?P<entitlement>.*).pem$", content["sslclientcert"])
             if url_res and ent_res:
@@ -469,11 +500,19 @@ if HAS_DEB822:
                 entitlement = ent_res.group("entitlement")
                 baseurl = "katello://{}@{}".format(entitlement, location)
 
+            query = parse_qs(parsed_url.query)
+            if "rel" in query and "comp" in query:
+                suites = query["rel"][0].replace(",", " ")
+                components = query["comp"][0].replace(",", " ")
+            else:
+                suites = "default"
+                components = "all"
+
             apt_cont = content.copy()
             apt_cont["Types"] = "deb"
             apt_cont["URIs"] = baseurl
-            apt_cont["Suites"] = "default"
-            apt_cont["Components"] = "all"
+            apt_cont["Suites"] = suites
+            apt_cont["Components"] = components
             apt_cont["Trusted"] = "yes"
 
             if apt_cont["arches"] is None or apt_cont["arches"] == ["ALL"]:
@@ -483,7 +522,52 @@ if HAS_DEB822:
                 apt_cont["arches"] = arches_str
                 apt_cont["Architectures"] = arches_str
 
+            # 'Signed-By': look for pulp public-key in '/etc/apt/trusted.gpg.d/'
+            keypath = "/etc/apt/trusted.gpg.d/"
+            keyfiles = [
+                os.path.join(keypath, f)
+                for f in os.listdir(keypath)
+                if os.path.isfile(os.path.join(keypath, f))
+                and (f.startswith("orcharhino_") or f.startswith("pulp_") or f.startswith("client"))
+                and (f.endswith(".gpg") or f.endswith(".asc"))
+            ]
+            orcharhino_keyfile = None
+            if len(keyfiles) > 1:
+                orcharhino_keyfile = keyfiles[0]
+                log.info(f"Found more than one pulp signing-key file; choosing '{orcharhino_keyfile}'")
+            elif len(keyfiles) == 1:
+                orcharhino_keyfile = keyfiles[0]
+            else:
+                log.warn(f"Could not find pulp signing-key in {keypath}")
+            if orcharhino_keyfile:
+                apt_cont["Signed-By"] = orcharhino_keyfile
+            else:
+                log.warn("No pulp signing-key file found!")
+
             return apt_cont
+
+        def enabled_repos(self):
+            enabled_repos = [repo for repo in self.repos822 if self._getboolean(repo, "enabled")]
+            return [
+                {"repositoryid": repo822["id"], "baseurl": [repo822["baseurl"]]} for repo822 in enabled_repos
+            ]
+
+        _boolean_states = {
+            "1": True,
+            "yes": True,
+            "true": True,
+            "on": True,
+            "0": False,
+            "no": False,
+            "false": False,
+            "off": False,
+        }
+
+        def _getboolean(self, repo, option):
+            v = repo.get(option)
+            if v.lower() not in self._boolean_states:
+                raise ValueError("Not a boolean: %s" % v)
+            return self._boolean_states[v.lower()]
 
 
 class YumRepoFile(RepoFileBase, ConfigParser):
@@ -560,16 +644,66 @@ class YumRepoFile(RepoFileBase, ConfigParser):
         if self.has_section(section):
             return Repo(section, self.items(section))
 
+    def enabled_repos(self):
+        result = []
+        try:
+            enabled_sections = [section for section in self.sections() if self.getboolean(section, "enabled")]
+            for section in enabled_sections:
+                result.append(
+                    {"repositoryid": section, "baseurl": [self._replace_vars(self.get(section, "baseurl"))]}
+                )
+        except ImportError:
+            pass
+        return result
 
-class ZypperRepoFile(YumRepoFile):
-    """
-    Class for manipulation of repo file on systems using Zypper (SuSE, OpenSuse).
-    """
+    def _replace_vars(self, repo_url):
+        """
+        returns a string with "$basearch" and "$releasever" replaced.
 
-    ZYPP_RHSM_PLUGIN_CONFIG_FILE = "/etc/rhsm/zypper.conf"
-    PATH = "etc/rhsm/zypper.repos.d"
-    NAME = "redhat.repo"
-    REPOFILE_HEADER = """#
+        :param repo_url: a repo URL that you want to replace $basearch and $releasever in.
+        :type path: str
+        """
+        mappings = self._obtain_mappings()
+        for key, value in mappings.items():
+            repo_url = repo_url.replace(key, value)
+        return repo_url
+
+    def _obtain_mappings(self):
+        """
+        returns a hash with "basearch" and "releasever" set. This will try dnf first, and then yum if dnf is
+        not installed.
+        """
+        if dnf is not None:
+            return self._obtain_mappings_dnf()
+        elif yum is not None:
+            return self._obtain_mappings_yum()
+        else:
+            log.error("Unable to load module for any supported package manager (dnf, yum).")
+            raise ImportError
+
+    def _obtain_mappings_dnf(self):
+        db = dnf.dnf.Base()
+        return {
+            "$releasever": db.conf.substitutions["releasever"],
+            "$basearch": db.conf.substitutions["basearch"],
+        }
+
+    def _obtain_mappings_yum(self):
+        yb = yum.YumBase()
+        return {"$releasever": yb.conf.yumvar["releasever"], "$basearch": yb.conf.yumvar["basearch"]}
+
+
+if HAS_ZYPP:
+
+    class ZypperRepoFile(YumRepoFile):
+        """
+        Class for manipulation of repo file on systems using Zypper (SuSE, OpenSuse).
+        """
+
+        ZYPP_RHSM_PLUGIN_CONFIG_FILE = "/etc/rhsm/zypper.conf"
+        PATH = "etc/rhsm/zypper.repos.d"
+        NAME = "redhat.repo"
+        REPOFILE_HEADER = """#
 # Certificate-Based Repositories
 # Managed by (rhsm) subscription-manager
 #
@@ -581,120 +715,128 @@ class ZypperRepoFile(YumRepoFile):
 #
 """
 
-    def __init__(self, path: Optional[str] = None, name: Optional[str] = None):
-        super(ZypperRepoFile, self).__init__(path, name)
-        self.gpgcheck: bool = False
-        self.repo_gpgcheck: bool = False
-        self.autorefresh: bool = False
-        # According to
-        # https://github.com/openSUSE/libzypp/blob/67f55b474d67f77c1868955da8542a7acfa70a9f/zypp/media/MediaManager.h#L394
-        #   the following values are valid: "yes", "no", "host", "peer"
-        self.gpgkey_ssl_verify: Optional[str] = None
-        self.repo_ssl_verify: Optional[str] = None
+        def __init__(self, path: Optional[str] = None, name: Optional[str] = None):
+            super(ZypperRepoFile, self).__init__(path, name)
+            self.gpgcheck: bool = False
+            self.repo_gpgcheck: bool = False
+            self.autorefresh: bool = False
+            # According to
+            # https://github.com/openSUSE/libzypp/blob/67f55b474d67f77c1868955da8542a7acfa70a9f/zypp/media/MediaManager.h#L394
+            #   the following values are valid: "yes", "no", "host", "peer"
+            self.gpgkey_ssl_verify: Optional[str] = None
+            self.repo_ssl_verify: Optional[str] = None
 
-    def read_zypp_conf(self):
-        """
-        Read configuration file for zypper plugin
-        :return: None
-        """
-        zypp_cfg = configparser.ConfigParser()
-        zypp_cfg.read(self.ZYPP_RHSM_PLUGIN_CONFIG_FILE)
-        if zypp_cfg.has_option("rhsm-plugin", "gpgcheck"):
-            self.gpgcheck = zypp_cfg.getboolean("rhsm-plugin", "gpgcheck")
-        if zypp_cfg.has_option("rhsm-plugin", "repo_gpgcheck"):
-            self.repo_gpgcheck = zypp_cfg.getboolean("rhsm-plugin", "repo_gpgcheck")
-        if zypp_cfg.has_option("rhsm-plugin", "autorefresh"):
-            self.autorefresh = zypp_cfg.getboolean("rhsm-plugin", "autorefresh")
-        if zypp_cfg.has_option("rhsm-plugin", "gpgkey-ssl-verify"):
-            self.gpgkey_ssl_verify = zypp_cfg.get("rhsm-plugin", "gpgkey-ssl-verify")
-        if zypp_cfg.has_option("rhsm-plugin", "repo-ssl-verify"):
-            self.repo_ssl_verify = zypp_cfg.get("rhsm-plugin", "repo-ssl-verify")
+        def read_zypp_conf(self):
+            """
+            Read configuration file for zypper plugin
+            :return: None
+            """
+            zypp_cfg = configparser.ConfigParser()
+            zypp_cfg.read(self.ZYPP_RHSM_PLUGIN_CONFIG_FILE)
+            if zypp_cfg.has_option("rhsm-plugin", "gpgcheck"):
+                self.gpgcheck = zypp_cfg.getboolean("rhsm-plugin", "gpgcheck")
+            if zypp_cfg.has_option("rhsm-plugin", "repo_gpgcheck"):
+                self.repo_gpgcheck = zypp_cfg.getboolean("rhsm-plugin", "repo_gpgcheck")
+            if zypp_cfg.has_option("rhsm-plugin", "autorefresh"):
+                self.autorefresh = zypp_cfg.getboolean("rhsm-plugin", "autorefresh")
+            if zypp_cfg.has_option("rhsm-plugin", "gpgkey-ssl-verify"):
+                self.gpgkey_ssl_verify = zypp_cfg.get("rhsm-plugin", "gpgkey-ssl-verify")
+            if zypp_cfg.has_option("rhsm-plugin", "repo-ssl-verify"):
+                self.repo_ssl_verify = zypp_cfg.get("rhsm-plugin", "repo-ssl-verify")
 
-    def fix_content(self, content: "Content") -> str:
-        self.read_zypp_conf()
-        zypper_cont = content.copy()
-        sslverify = zypper_cont["sslverify"]
-        sslcacert = zypper_cont["sslcacert"]
-        sslclientkey = zypper_cont["sslclientkey"]
-        sslclientcert = zypper_cont["sslclientcert"]
-        proxy = zypper_cont["proxy"]
-        proxy_username = zypper_cont["proxy_username"]
-        proxy_password = zypper_cont["proxy_password"]
+        def fix_content(self, content: "Content") -> str:
+            self.read_zypp_conf()
+            zypper_cont = content.copy()
+            sslverify = zypper_cont["sslverify"]
+            sslcacert = zypper_cont["sslcacert"]
+            sslclientkey = zypper_cont["sslclientkey"]
+            sslclientcert = zypper_cont["sslclientcert"]
+            proxy = zypper_cont["proxy"]
+            proxy_username = zypper_cont["proxy_username"]
+            proxy_password = zypper_cont["proxy_password"]
 
-        del zypper_cont["sslverify"]
-        del zypper_cont["sslcacert"]
-        del zypper_cont["sslclientkey"]
-        del zypper_cont["sslclientcert"]
-        del zypper_cont["proxy"]
-        del zypper_cont["proxy_username"]
-        del zypper_cont["proxy_password"]
-        # NOTE looks like metadata_expire and ui_repoid_vars are ignored by zypper
+            del zypper_cont["sslverify"]
+            del zypper_cont["sslcacert"]
+            del zypper_cont["sslclientkey"]
+            del zypper_cont["sslclientcert"]
+            del zypper_cont["proxy"]
+            del zypper_cont["proxy_username"]
+            del zypper_cont["proxy_password"]
+            # NOTE looks like metadata_expire and ui_repoid_vars are ignored by zypper
 
-        # clean up data for zypper
-        if zypper_cont["gpgkey"] in ["https://", "http://"]:
-            del zypper_cont["gpgkey"]
+            # clean up data for zypper
+            if zypper_cont["gpgkey"] in ["https://", "http://"]:
+                del zypper_cont["gpgkey"]
 
-        # make sure gpg key download doesn't fail because of private certs
-        if zypper_cont["gpgkey"] and self.gpgkey_ssl_verify:
-            zypper_cont["gpgkey"] += "?ssl_verify=%s" % self.gpgkey_ssl_verify
+            # make sure gpg key download doesn't fail because of private certs
+            if zypper_cont["gpgkey"] and self.gpgkey_ssl_verify:
+                zypper_cont["gpgkey"] += "?ssl_verify=%s" % self.gpgkey_ssl_verify
 
-        # See BZ: https://bugzilla.redhat.com/show_bug.cgi?id=1764265
-        if self.gpgcheck is False:
-            zypper_cont["gpgcheck"] = "0"
+            # See BZ: https://bugzilla.redhat.com/show_bug.cgi?id=1764265
+            if self.gpgcheck is False:
+                zypper_cont["gpgcheck"] = "0"
 
-        # See BZ: https://bugzilla.redhat.com/show_bug.cgi?id=1858231
-        if self.repo_gpgcheck is True:
-            zypper_cont["repo_gpgcheck"] = "1"
-        else:
-            zypper_cont["repo_gpgcheck"] = "0"
-
-        # See BZ: https://bugzilla.redhat.com/show_bug.cgi?id=1797386
-        if self.autorefresh is True:
-            zypper_cont["autorefresh"] = "1"
-        else:
-            zypper_cont["autorefresh"] = "0"
-
-        baseurl = zypper_cont["baseurl"]
-        parsed = urlparse(baseurl)
-        zypper_query_args: Dict[str, str] = parse_qs(parsed.query)
-
-        if sslverify and sslverify in ["1"]:
-            if self.repo_ssl_verify:
-                zypper_query_args["ssl_verify"] = self.repo_ssl_verify
+            # See BZ: https://bugzilla.redhat.com/show_bug.cgi?id=1858231
+            if self.repo_gpgcheck is True:
+                zypper_cont["repo_gpgcheck"] = "1"
             else:
-                zypper_query_args["ssl_verify"] = "host"
+                zypper_cont["repo_gpgcheck"] = "0"
 
-        if sslcacert:
-            zypper_query_args["ssl_capath"] = os.path.dirname(sslcacert)
-        if sslclientkey:
-            zypper_query_args["ssl_clientkey"] = sslclientkey
-        if sslclientcert:
-            zypper_query_args["ssl_clientcert"] = sslclientcert
-        if proxy:
-            zypper_query_args["proxy"] = proxy
-        if proxy_username:
-            zypper_query_args["proxyuser"] = proxy_username
-        if proxy_password:
-            zypper_query_args["proxypass"] = proxy_password
-        zypper_query = urlencode(zypper_query_args)
+            # See BZ: https://bugzilla.redhat.com/show_bug.cgi?id=1797386
+            if self.autorefresh is True:
+                zypper_cont["autorefresh"] = "1"
+            else:
+                zypper_cont["autorefresh"] = "0"
 
-        new_url = urlunparse(
-            (parsed.scheme, parsed.netloc, parsed.path, parsed.params, zypper_query, parsed.fragment)
-        )
-        zypper_cont["baseurl"] = new_url
+            baseurl = zypper_cont["baseurl"]
+            parsed = urlparse(baseurl)
+            zypper_query_args: Dict[str, str] = parse_qs(parsed.query)
 
-        return zypper_cont
+            if sslverify and sslverify in ["1"]:
+                if self.repo_ssl_verify:
+                    zypper_query_args["ssl_verify"] = self.repo_ssl_verify
+                else:
+                    zypper_query_args["ssl_verify"] = "host"
 
-    # We need to overwrite this, to avoid name clashes with yum's server_val_repo_file
-    @classmethod
-    def server_value_repo_file(cls) -> "ZypperRepoFile":
-        return cls("var/lib/rhsm/repo_server_val/", "zypper_{}".format(cls.NAME))
+            if sslcacert:
+                zypper_query_args["ssl_capath"] = os.path.dirname(sslcacert)
+            if sslclientkey:
+                zypper_query_args["ssl_clientkey"] = sslclientkey
+            if sslclientcert:
+                zypper_query_args["ssl_clientcert"] = sslclientcert
+            if proxy:
+                zypper_query_args["proxy"] = proxy
+            if proxy_username:
+                zypper_query_args["proxyuser"] = proxy_username
+            if proxy_password:
+                zypper_query_args["proxypass"] = proxy_password
+            zypper_query = urlencode(zypper_query_args)
+
+            new_url = urlunparse(
+                (parsed.scheme, parsed.netloc, parsed.path, parsed.params, zypper_query, parsed.fragment)
+            )
+            zypper_cont["baseurl"] = new_url
+
+            return zypper_cont
+
+        # We need to overwrite this, to avoid name clashes with yum's server_val_repo_file
+        @classmethod
+        def server_value_repo_file(cls) -> "ZypperRepoFile":
+            return cls("var/lib/rhsm/repo_server_val/", "zypper_{}".format(cls.NAME))
+
+    def _obtain_mappings(self):
+        db = zypp.ZConfig.instance()
+        return {"$basearch": str(db.systemArchitecture())}
 
 
 def init_repo_file_classes() -> List[Tuple[type(RepoFileBase), str]]:
-    repo_file_classes: List[type(RepoFileBase)] = [YumRepoFile, ZypperRepoFile]
+    repo_file_classes: List[type(RepoFileBase)] = []
     if HAS_DEB822:
         repo_file_classes.append(AptRepoFile)
+    elif HAS_ZYPP:
+        repo_file_classes.append(ZypperRepoFile)
+    else:
+        repo_file_classes.append(YumRepoFile)
     _repo_files: List[Tuple[type(RepoFileBase), type(RepoFileBase)]] = [
         (RepoFile, RepoFile.server_value_repo_file) for RepoFile in repo_file_classes if RepoFile.installed()
     ]
