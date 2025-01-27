@@ -136,7 +136,14 @@ def add_os_product_tags(product_tags):
 
     dist_info = HardwareCollector().get_distribution()
     os_product = "{name}-{version}".format(name=dist_info[4], version=dist_info[1])
-    all_tags.append(os_product)
+
+    if isinstance(all_tags, list):
+        all_tags.append(os_product)
+    elif isinstance(all_tags, set):
+        all_tags.add(os_product)
+    else:
+        raise TypeError("Unsupported collection type for `all_tags`. Use a list or set.")
+
     return all_tags
 
 
