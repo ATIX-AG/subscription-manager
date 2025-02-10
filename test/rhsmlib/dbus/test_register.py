@@ -20,6 +20,8 @@ from typing import Optional
 from rhsm import connection
 import rhsmlib.dbus.exceptions
 from rhsmlib.dbus.objects.register import DomainSocketRegisterDBusImplementation, RegisterDBusImplementation
+from rhsm.config import RhsmConfigParser
+from test.rhsmlib.services.test_config import TEST_CONFIG
 from rhsmlib.dbus.server import DomainSocketServer
 
 from unittest import mock
@@ -275,9 +277,28 @@ class RegisterDBusObjectTest(SubManDBusFixture):
 
 
 class DomainSocketRegisterDBusObjectTest(SubManDBusFixture):
+    config_file = None
+    """Attribute referencing file containing test configuration text."""
+    parser = None
+    """Attribute referencing configuration's parser object."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+
+        cls.config_file = tempfile.NamedTemporaryFile()
+        with open(cls.config_file.name, "w") as handle:
+            handle.write(TEST_CONFIG)
+        cls.parser = RhsmConfigParser(cls.config_file.name)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.config_file = None
+        super().tearDownClass()
+
     def setUp(self) -> None:
         super().setUp()
-        self.impl = DomainSocketRegisterDBusImplementation()
+        self.impl = DomainSocketRegisterDBusImplementation(self.parser)
 
         register_patch = mock.patch(
             "rhsmlib.dbus.objects.register.RegisterService.register",
@@ -299,20 +320,12 @@ class DomainSocketRegisterDBusObjectTest(SubManDBusFixture):
         self.patches["is_registered"] = is_registered_patch.start()
         self.addCleanup(is_registered_patch.stop)
 
-        update_patch = mock.patch(
-            "rhsmlib.dbus.objects.register.EntCertActionInvoker.update",
-            name="update",
-        )
-        self.patches["update"] = update_patch.start()
-        self.addCleanup(update_patch.stop)
-
         build_uep_patch = mock.patch(
             "rhsmlib.dbus.base_object.BaseImplementation.build_uep",
             name="build_uep",
         )
         self.patches["build_uep"] = build_uep_patch.start()
         self.addCleanup(build_uep_patch.stop)
-        self.patches["update"].return_value = None
 
     def test_Register(self):
         expected = json.loads(CONSUMER_CONTENT_JSON_SCA)
@@ -427,6 +440,30 @@ class DomainSocketRegisterDBusObjectTest(SubManDBusFixture):
         result = self.impl.register_with_activation_keys(
             "username",
             {"keys": ["key1", "key2"], "force": True},
+            {"host": "localhost", "port": "8443", "handler": "/candlepin"},
+        )
+        self.assertEqual(expected, result)
+
+    def test_RegisterWithActivationKeys__with_enable_content_option(self):
+        expected = json.loads(CONSUMER_CONTENT_JSON_SCA)
+        self.patches["is_registered"].return_value = False
+        self.patches["register"].return_value = expected
+
+        result = self.impl.register_with_activation_keys(
+            "username",
+            {"keys": ["key1", "key2"], "enable_content": "true"},
+            {"host": "localhost", "port": "8443", "handler": "/candlepin"},
+        )
+        self.assertEqual(expected, result)
+
+    def test_RegisterWithActivationKeys__with_disable_content_option(self):
+        expected = json.loads(CONSUMER_CONTENT_JSON_SCA)
+        self.patches["is_registered"].return_value = False
+        self.patches["register"].return_value = expected
+
+        result = self.impl.register_with_activation_keys(
+            "username",
+            {"keys": ["key1", "key2"], "enable_content": "false"},
             {"host": "localhost", "port": "8443", "handler": "/candlepin"},
         )
         self.assertEqual(expected, result)

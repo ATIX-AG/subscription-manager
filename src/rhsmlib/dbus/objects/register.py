@@ -25,15 +25,17 @@ from rhsmlib.services.register import RegisterService
 from rhsmlib.services.unregister import UnregisterService
 from rhsmlib.services.entitlement import EntitlementService
 from rhsmlib.services.environment import EnvironmentService
+from rhsmlib.services.config import Config
 from rhsmlib.client_info import DBusSender
 from subscription_manager.cp_provider import CPProvider
 
 from subscription_manager.i18n import Locale
 from subscription_manager.i18n import ugettext as _
-from subscription_manager.entcertlib import EntCertActionInvoker
+from subscription_manager.utils import is_true_value
 
 if TYPE_CHECKING:
     from rhsm.connection import UEPConnection
+    from rhsm.config import RhsmConfigParser
 
 log = logging.getLogger(__name__)
 
@@ -180,6 +182,9 @@ class DomainSocketRegisterDBusImplementation(base_object.BaseImplementation):
     where a D-Bus signal is emitted.
     """
 
+    def __init__(self, parser: "RhsmConfigParser" = None):
+        self.config = Config(parser)
+
     def get_organizations(self, options: dict) -> List[dict]:
         """Get user account organizations.
 
@@ -244,6 +249,8 @@ class DomainSocketRegisterDBusImplementation(base_object.BaseImplementation):
         # When consumer is created, we can try to enable content, if requested.
         if enable_content:
             self._enable_content(uep, consumer)
+        else:
+            self._disable_content()
 
         return consumer
 
@@ -262,10 +269,14 @@ class DomainSocketRegisterDBusImplementation(base_object.BaseImplementation):
         uep: UEPConnection = self.build_uep(connection_options)
         service = RegisterService(uep)
 
+        enable_content: bool = self._remove_enable_content_option(register_options, default=True)
         consumer: dict = service.register(organization, **register_options)
 
-        ent_cert_lib = EntCertActionInvoker()
-        ent_cert_lib.update()
+        # When consumer is created, we can try to enable content, if requested.
+        if enable_content:
+            self._enable_content(uep, consumer)
+        else:
+            self._disable_content()
 
         return consumer
 
@@ -284,34 +295,51 @@ class DomainSocketRegisterDBusImplementation(base_object.BaseImplementation):
         """
         raise NoOrganizationException(username=username)
 
-    def _remove_enable_content_option(self, options: dict) -> bool:
+    @staticmethod
+    def _remove_enable_content_option(options: dict, default: bool = False) -> bool:
         """Try to remove enable_content option from options dictionary.
 
         :returns: The value of 'enable_content' key.
         """
         if "enable_content" not in options:
-            return False
+            return default
 
-        return bool(options.pop("enable_content"))
+        enable_content = options.pop("enable_content")
+        return is_true_value(enable_content)
 
     def _enable_content(self, uep: "UEPConnection", consumer: dict) -> None:
-        """Try to enable content: refresh SCA entitlement certs in SCA mode."""
+        """
+        Try to enable generating content from SCA certificates. This method
+        does several things:
+        1) It sets the value of manage_repos to 1 in rhsm.conf so it will
+           be possible to generate redhat.repo file from SCA certificate now
+           or later by subscription-manager or rhsmcertd.
+        2) It downloads SCA certificate and generate redhat.repo file
+        """
         content_access: str = consumer["owner"]["contentAccessMode"]
-        enabled_content = None
 
         if content_access == "entitlement":
             log.error("Entitlement content access mode is not supported")
         elif content_access == "org_environment":
+            log.info("Enabling generating content (redhat.repo) from SCA certificate in rhsm.conf.")
+            self.config["rhsm"]["manage_repos"] = "1"
+            self.config.persist()
             log.debug("Refreshing since 'enable_content' is true.")
             service = EntitlementService(uep)
             # TODO: try get anything useful from refresh result. It is not possible atm.
             service.refresh(remove_cache=False, force=False)
-
         else:
             log.error(f"Unable to enable content due to unsupported content access mode: '{content_access}'")
 
-        if enabled_content is not None:
-            consumer["enabledContent"] = enabled_content
+    def _disable_content(self) -> None:
+        """
+        Try to disable generating content from SCA certificates. This method
+        sets the value of manage_repos to 0 in rhsm.conf to avoid generating redhat.repo
+        file from SCA certificates by subscription-manager or rhsmcertd.
+        """
+        log.info("Disabling generating content (redhat.repo) from SCA certificate in rhsm.conf.")
+        self.config["rhsm"]["manage_repos"] = "0"
+        self.config.persist()
 
     def _check_force_handling(self, register_options: dict, connection_options: dict) -> None:
         """
