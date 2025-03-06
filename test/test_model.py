@@ -1,4 +1,5 @@
 from unittest import mock
+from unittest.mock import patch
 
 from . import fixture
 
@@ -78,6 +79,29 @@ class EntitlementSourceBuilder:
         es = model.EntitlementSource()
         es._entitlements = [ent1, ent2]
         return es
+
+
+class TestAddOsProductTags(fixture.SubManFixture):
+    @patch(
+        "rhsmlib.facts.hwprobe.HardwareCollector.get_distribution",
+        return_value=("", "12", "", "", "debian", []),
+    )
+    def test_add_os_product_tags_empty(self, mock_get_distribution):
+        product_tags = []
+        all_tags = model.add_os_product_tags(product_tags)
+        self.assertEqual(len(all_tags), 1)
+        self.assertEqual(all_tags[0], "debian-12")
+
+    @patch(
+        "rhsmlib.facts.hwprobe.HardwareCollector.get_distribution",
+        return_value=("", "12", "", "", "debian", []),
+    )
+    def test_add_os_product_tags_with_product_tags(self, mock_get_distribution):
+        product_tags = ["awesomeproduct-1"]
+        all_tags = model.add_os_product_tags(product_tags)
+        self.assertEqual(len(all_tags), 2)
+        self.assertEqual(all_tags[0], "awesomeproduct-1")
+        self.assertEqual(all_tags[1], "debian-12")
 
 
 class TestContentTagMatch(fixture.SubManFixture):
@@ -219,6 +243,24 @@ class TestFindContent(fixture.SubManFixture):
         res = model.find_content(es, content_type="ostree")
 
         self.assertEqual(len(res), 0)
+
+    @patch(
+        "rhsmlib.facts.hwprobe.HardwareCollector.get_distribution",
+        return_value=("", "12", "", "", "debian", []),
+    )
+    def test_product_tags_and_os_product_tags(self, mock_get_distribution):
+        content1 = create_mock_content(tags=["debian-12"], content_type="ostree")
+        content2 = create_mock_content(name="more-test-content", tags=["ubuntu-18"], content_type="ostree")
+        content_list = [content1, content2]
+
+        entitlement = model.Entitlement(contents=content_list)
+        es = model.EntitlementSource()
+        es._entitlements = [entitlement]
+
+        res = model.find_content(es, content_type="ostree", use_os_release_product=True)
+
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0], content1)
 
     def test_product_tags_and_content_tags_no_match_no_product_tags(self):
         content1 = create_mock_content(tags=["awesomeos-ostree-23"], content_type="ostree")
