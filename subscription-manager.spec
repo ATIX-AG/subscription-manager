@@ -26,8 +26,6 @@
 %global use_dnf (0%{?fedora} || (0%{?rhel}))
 %global create_libdnf_rpm (0%{?fedora} || 0%{?rhel})
 
-%global python_sitelib %python3_sitelib
-
 %global _hardened_build 1
 %{!?__global_ldflags: %global __global_ldflags -Wl,-z,relro -Wl,-z,now}
 
@@ -515,7 +513,7 @@ rm -f %{buildroot}%{_bindir}/package-profile-upload
 
 # When libdnf rpm is created, then dnf plugin is part of subscription-manager rpm
 %if %{create_libdnf_rpm}
-%{python_sitelib}/dnf-plugins/*
+%{python3_sitelib}/dnf-plugins/*
 %endif
 
 # rhsmlib
@@ -604,7 +602,7 @@ rm -f %{buildroot}%{_bindir}/package-profile-upload
 # DNF RPM
 %files -n dnf-plugin-subscription-manager
 %defattr(-,root,root,-)
-%{python_sitelib}/dnf-plugins/*
+%{python3_sitelib}/dnf-plugins/*
 %{_libdir}/libdnf/plugins/product-id.so
 %endif
 %endif
