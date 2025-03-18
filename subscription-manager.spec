@@ -26,7 +26,6 @@
 %global use_dnf (0%{?fedora} || (0%{?rhel}))
 %global create_libdnf_rpm (0%{?fedora} || 0%{?rhel})
 
-%global python_sitearch %python3_sitearch
 %global python_sitelib %python3_sitelib
 
 %global _hardened_build 1
@@ -351,7 +350,7 @@ popd
 %install
 make -f Makefile install VERSION=%{version}-%{release} \
     PYTHON=%{__python3} PREFIX=%{_prefix} \
-    DESTDIR=%{buildroot} PYTHON_SITELIB=%{python_sitearch} \
+    DESTDIR=%{buildroot} PYTHON_SITELIB=%{python3_sitearch} \
     OS_VERSION=%{?fedora}%{?rhel}%{?suse_version} OS_DIST=%{dist} \
     COMPLETION_DIR=%{completion_dir} \
     RUN_DIR=%{run_dir} \
@@ -429,19 +428,19 @@ rm -f %{buildroot}%{_bindir}/package-profile-upload
 
 %endif
 
-%dir %{python_sitearch}/rhsmlib/candlepin
-%dir %{python_sitearch}/rhsmlib/dbus
-%dir %{python_sitearch}/rhsmlib/dbus/facts
-%dir %{python_sitearch}/rhsmlib/dbus/objects
-%dir %{python_sitearch}/rhsmlib/facts
-%dir %{python_sitearch}/rhsmlib/services
-%dir %{python_sitearch}/subscription_manager-%{version}-*.egg-info
-%dir %{python_sitearch}/subscription_manager/api
-%dir %{python_sitearch}/subscription_manager/branding
-%dir %{python_sitearch}/subscription_manager/cli_command
-%dir %{python_sitearch}/subscription_manager/model
-%dir %{python_sitearch}/subscription_manager/plugin
-%dir %{python_sitearch}/subscription_manager/scripts
+%dir %{python3_sitearch}/rhsmlib/candlepin
+%dir %{python3_sitearch}/rhsmlib/dbus
+%dir %{python3_sitearch}/rhsmlib/dbus/facts
+%dir %{python3_sitearch}/rhsmlib/dbus/objects
+%dir %{python3_sitearch}/rhsmlib/facts
+%dir %{python3_sitearch}/rhsmlib/services
+%dir %{python3_sitearch}/subscription_manager-%{version}-*.egg-info
+%dir %{python3_sitearch}/subscription_manager/api
+%dir %{python3_sitearch}/subscription_manager/branding
+%dir %{python3_sitearch}/subscription_manager/cli_command
+%dir %{python3_sitearch}/subscription_manager/model
+%dir %{python3_sitearch}/subscription_manager/plugin
+%dir %{python3_sitearch}/subscription_manager/scripts
 %dir %{_var}/spool/rhsm
 
 %attr(755,root,root) %{_sbindir}/subscription-manager
@@ -491,24 +490,24 @@ rm -f %{buildroot}%{_bindir}/package-profile-upload
 
 %{_sysusersdir}/rhsm.conf
 
-%dir %{python_sitearch}/subscription_manager
+%dir %{python3_sitearch}/subscription_manager
 
 # code, python modules and packages
-%{python_sitearch}/subscription_manager-*.egg-info/*
-%{python_sitearch}/subscription_manager/*.py*
-%{python_sitearch}/subscription_manager/api/*.py*
-%{python_sitearch}/subscription_manager/branding/*.py*
-%{python_sitearch}/subscription_manager/cli_command/*.py*
-%{python_sitearch}/subscription_manager/model/*.py*
-%{python_sitearch}/subscription_manager/plugin/__init__.py*
-%{python_sitearch}/subscription_manager/scripts/*.py*
-%{python_sitearch}/subscription_manager/__pycache__
-%{python_sitearch}/subscription_manager/api/__pycache__
-%{python_sitearch}/subscription_manager/branding/__pycache__
-%{python_sitearch}/subscription_manager/cli_command/__pycache__
-%{python_sitearch}/subscription_manager/model/__pycache__
-%{python_sitearch}/subscription_manager/plugin/__pycache__
-%{python_sitearch}/subscription_manager/scripts/__pycache__
+%{python3_sitearch}/subscription_manager-*.egg-info/*
+%{python3_sitearch}/subscription_manager/*.py*
+%{python3_sitearch}/subscription_manager/api/*.py*
+%{python3_sitearch}/subscription_manager/branding/*.py*
+%{python3_sitearch}/subscription_manager/cli_command/*.py*
+%{python3_sitearch}/subscription_manager/model/*.py*
+%{python3_sitearch}/subscription_manager/plugin/__init__.py*
+%{python3_sitearch}/subscription_manager/scripts/*.py*
+%{python3_sitearch}/subscription_manager/__pycache__
+%{python3_sitearch}/subscription_manager/api/__pycache__
+%{python3_sitearch}/subscription_manager/branding/__pycache__
+%{python3_sitearch}/subscription_manager/cli_command/__pycache__
+%{python3_sitearch}/subscription_manager/model/__pycache__
+%{python3_sitearch}/subscription_manager/plugin/__pycache__
+%{python3_sitearch}/subscription_manager/scripts/__pycache__
 
 # subscription-manager plugins
 %dir %{rhsm_plugins_dir}
@@ -520,26 +519,26 @@ rm -f %{buildroot}%{_bindir}/package-profile-upload
 %endif
 
 # rhsmlib
-%dir %{python_sitearch}/rhsmlib
-%{python_sitearch}/rhsmlib/*.py*
-%{python_sitearch}/rhsmlib/candlepin/*.py*
-%{python_sitearch}/rhsmlib/facts/*.py*
-%{python_sitearch}/rhsmlib/services/*.py*
-%{python_sitearch}/rhsmlib/dbus/*.py*
-%{python_sitearch}/rhsmlib/dbus/facts/*.py*
-%{python_sitearch}/rhsmlib/dbus/objects/*.py*
-%{python_sitearch}/rhsmlib/__pycache__
-%{python_sitearch}/rhsmlib/candlepin/__pycache__
-%{python_sitearch}/rhsmlib/dbus/__pycache__
-%{python_sitearch}/rhsmlib/dbus/facts/__pycache__
-%{python_sitearch}/rhsmlib/dbus/objects/__pycache__
-%{python_sitearch}/rhsmlib/facts/__pycache__
-%{python_sitearch}/rhsmlib/services/__pycache__
+%dir %{python3_sitearch}/rhsmlib
+%{python3_sitearch}/rhsmlib/*.py*
+%{python3_sitearch}/rhsmlib/candlepin/*.py*
+%{python3_sitearch}/rhsmlib/facts/*.py*
+%{python3_sitearch}/rhsmlib/services/*.py*
+%{python3_sitearch}/rhsmlib/dbus/*.py*
+%{python3_sitearch}/rhsmlib/dbus/facts/*.py*
+%{python3_sitearch}/rhsmlib/dbus/objects/*.py*
+%{python3_sitearch}/rhsmlib/__pycache__
+%{python3_sitearch}/rhsmlib/candlepin/__pycache__
+%{python3_sitearch}/rhsmlib/dbus/__pycache__
+%{python3_sitearch}/rhsmlib/dbus/facts/__pycache__
+%{python3_sitearch}/rhsmlib/dbus/objects/__pycache__
+%{python3_sitearch}/rhsmlib/facts/__pycache__
+%{python3_sitearch}/rhsmlib/services/__pycache__
 
 # syspurpose
-%dir %{python_sitearch}/syspurpose
-%{python_sitearch}/syspurpose/*.py*
-%{python_sitearch}/syspurpose/__pycache__
+%dir %{python3_sitearch}/syspurpose
+%{python3_sitearch}/syspurpose/*.py*
+%{python3_sitearch}/syspurpose/__pycache__
 
 %{_datadir}/polkit-1/actions/com.redhat.*.policy
 %{_datadir}/dbus-1/system-services/com.redhat.*.service
@@ -551,15 +550,15 @@ rm -f %{buildroot}%{_bindir}/package-profile-upload
 %attr(644,root,root) %{_tmpfilesdir}/%{name}.conf
 
 # Incude rt CLI tool
-%dir %{python_sitearch}/rct
-%{python_sitearch}/rct/*.py*
-%{python_sitearch}/rct/__pycache__
+%dir %{python3_sitearch}/rct
+%{python3_sitearch}/rct/*.py*
+%{python3_sitearch}/rct/__pycache__
 %attr(755,root,root) %{_bindir}/rct
 
 # Include consumer debug CLI tool
-%dir %{python_sitearch}/rhsm_debug
-%{python_sitearch}/rhsm_debug/*.py*
-%{python_sitearch}/rhsm_debug/__pycache__
+%dir %{python3_sitearch}/rhsm_debug
+%{python3_sitearch}/rhsm_debug/*.py*
+%{python3_sitearch}/rhsm_debug/__pycache__
 %attr(755,root,root) %{_bindir}/rhsm-debug
 
 %doc
@@ -576,8 +575,8 @@ rm -f %{buildroot}%{_bindir}/package-profile-upload
 %{_sysconfdir}/rhsm/pluginconf.d/container_content.ContainerContentPlugin.conf
 %{rhsm_plugins_dir}/container_content.py*
 %{rhsm_plugins_dir}/__pycache__/*container*
-%{python_sitearch}/subscription_manager/plugin/container/__pycache__
-%{python_sitearch}/subscription_manager/plugin/container/*.py*
+%{python3_sitearch}/subscription_manager/plugin/container/__pycache__
+%{python3_sitearch}/subscription_manager/plugin/container/*.py*
 
 # Copying Red Hat CA cert into each directory:
 %attr(755,root,root) %dir %{_sysconfdir}/docker/certs.d/cdn.redhat.com
@@ -589,8 +588,8 @@ rm -f %{buildroot}%{_bindir}/package-profile-upload
 %defattr(-,root,root,-)
 %{_sysconfdir}/rhsm/pluginconf.d/ostree_content.OstreeContentPlugin.conf
 %{rhsm_plugins_dir}/ostree_content.py*
-%{python_sitearch}/subscription_manager/plugin/ostree/*.py*
-%{python_sitearch}/subscription_manager/plugin/ostree/__pycache__
+%{python3_sitearch}/subscription_manager/plugin/ostree/*.py*
+%{python3_sitearch}/subscription_manager/plugin/ostree/__pycache__
 %{rhsm_plugins_dir}/__pycache__/*ostree*
 %endif
 
@@ -613,18 +612,18 @@ rm -f %{buildroot}%{_bindir}/package-profile-upload
 
 %files -n python3-subscription-manager-rhsm
 %defattr(-,root,root,-)
-%dir %{python_sitearch}/rhsm
-%{python_sitearch}/rhsm/*
+%dir %{python3_sitearch}/rhsm
+%{python3_sitearch}/rhsm/*
 
 %files -n python3-cloud-what
 %defattr(-,root,root,-)
 %attr(750,root,root) %dir %{_var}/cache/cloud-what
-%dir %{python_sitearch}/cloud_what
-%dir %{python_sitearch}/cloud_what/providers
-%{python_sitearch}/cloud_what/*.py*
-%{python_sitearch}/cloud_what/providers/*.py*
-%{python_sitearch}/cloud_what/__pycache__
-%{python_sitearch}/cloud_what/providers/__pycache__
+%dir %{python3_sitearch}/cloud_what
+%dir %{python3_sitearch}/cloud_what/providers
+%{python3_sitearch}/cloud_what/*.py*
+%{python3_sitearch}/cloud_what/providers/*.py*
+%{python3_sitearch}/cloud_what/__pycache__
+%{python3_sitearch}/cloud_what/providers/__pycache__
 
 %pre
 
@@ -690,7 +689,7 @@ fi
 %systemd_posttrans_with_restart rhsm.service
 # Remove old *.egg-info empty directories not removed be previous versions of RPMs
 # due to this BZ: https://bugzilla.redhat.com/show_bug.cgi?id=1927245
-rmdir %{python_sitearch}/subscription_manager-*-*.egg-info --ignore-fail-on-non-empty
+rmdir %{python3_sitearch}/subscription_manager-*-*.egg-info --ignore-fail-on-non-empty
 # Remove old cache files
 # The -f flag ensures that exit code 0 will be returned even if the file does not exist.
 rm -f /var/lib/rhsm/cache/rhsm_icon.json
