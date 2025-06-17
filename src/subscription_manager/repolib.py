@@ -22,7 +22,7 @@ import subscription_manager.injection as inj
 from subscription_manager.cache import OverrideStatusCache, WrittenOverrideCache
 from subscription_manager import model
 from subscription_manager.model import ent_cert
-from subscription_manager.utils import get_supported_resources
+from subscription_manager.utils import get_supported_resources, has_capability
 
 from rhsm.repofile import Repo, manage_repos_enabled, get_repo_file_classes
 from rhsm.repofile import YumRepoFile, RepoFileBase
@@ -543,15 +543,8 @@ class RepoUpdateActionCommand:
         # cache_only as well.
         release_source = YumReleaseverSource()
 
-        # query whether OCSP stapling is advertized by CP for the repositories
-        try:
-            has_ssl_verify_status = self.get_consumer_auth_cp().has_capability("ssl_verify_status")
-        except Exception as exc:
-            # Multiple errors can occur here: socket.error (mainly rhsmcertd),
-            # Connection-, Proxy-, TokenAuthException, ...
-            # This except fixes ENT-5215.
-            log.error(f"{type(exc).__name__}: {exc}")
-            has_ssl_verify_status = False
+        # Query whether OCSP stapling is advertised by CP for the repositories
+        has_ssl_verify_status = has_capability("ssl_verify_status")
 
         for content in matching_content:
             repo = Repo.from_ent_cert_content(content, baseurl, ca_cert, release_source)
