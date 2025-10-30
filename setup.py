@@ -298,9 +298,7 @@ setup(
         },
     },
     classifiers=[
-        "Programming Language :: Python :: 2",
         "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: GPL License",
         "Operating System :: Linux",
     ],
     include_package_data=True,
