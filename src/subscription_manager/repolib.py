@@ -17,6 +17,7 @@ from typing import Dict, Iterable, List, Literal, Optional, Set, Tuple, Union, T
 from iniparse import RawConfigParser as ConfigParser
 import logging
 import os
+from urllib.parse import urlparse, unquote
 
 import subscription_manager.injection as inj
 from subscription_manager.cache import OverrideStatusCache, WrittenOverrideCache
@@ -368,6 +369,8 @@ class RepoUpdateActionCommand:
     Returns an RepoActionReport.
     """
 
+    DEFAULT_ENV_MARKER = ""
+
     def __init__(self, cache_only: bool = False, apply_overrides: bool = True):
         self.identity: Identity = inj.require(inj.IDENTITY)
 
@@ -399,6 +402,7 @@ class RepoUpdateActionCommand:
             log.error(f"{type(exc).__name__}: {exc}")
 
         self.written_overrides = WrittenOverrideCache()
+        self._ordered_deb_env_markers: Optional[List[str]] = None
 
         # FIXME: empty report at the moment, should be changed to include
         # info about updated repos
@@ -518,8 +522,112 @@ class RepoUpdateActionCommand:
 
         content_list = self.get_all_content(baseurl, ca_cert)
 
-        # assumes items in content_list are hashable
-        return set(content_list)
+        # Keep existing behavior for non-DEB systems.
+        if not HAS_DEB822:
+            # assumes items in content_list are hashable
+            return set(content_list)
+        return self._select_unique_deb_content(content_list)
+
+    def _select_unique_deb_content(self, content_list: List[Repo]) -> List[Repo]:
+        ordered_env_markers = self._get_ordered_deb_env_markers()
+        repos_by_environment = self._get_repos_by_environment(content_list, ordered_env_markers)
+
+        unique_repos: Dict[str, Repo] = {}
+
+        for env_marker in ordered_env_markers + [self.DEFAULT_ENV_MARKER]:
+            for repo_key, repo in repos_by_environment.get(env_marker, []):
+                if not unique_repos.get(repo_key):
+                    unique_repos[repo_key] = repo
+
+        return list(unique_repos.values())
+
+    def _get_repos_by_environment(
+        self, content_list: List[Repo], env_markers: List[str]
+    ) -> Dict[str, List[tuple[str, Repo]]]:
+        repos_by_environments: Dict[str, List[tuple[str, Repo]]] = {}
+
+        for repo in content_list:
+            if repo.content_type != "deb":
+                env_marker, repo_key = self.DEFAULT_ENV_MARKER, f"id:{repo.id}"
+            else:
+                url_parts = self._deb_repo_url_parts(repo)
+                if url_parts is None:
+                    env_marker, repo_key = self.DEFAULT_ENV_MARKER, f"id:{repo.id}"
+                else:
+                    netloc, path = url_parts
+
+                    env_marker, normalized_path = self._split_out_env_marker(path, env_markers)
+                    repo_key = f"deb:{netloc}{normalized_path}"
+
+            if env_marker not in repos_by_environments:
+                repos_by_environments[env_marker] = []
+            repos_by_environments[env_marker].append((repo_key, repo))
+
+        return repos_by_environments
+
+    @staticmethod
+    def _deb_repo_url_parts(repo: Repo) -> Optional[Tuple[str, str]]:
+        baseurl = repo.get("baseurl")
+        if not baseurl:
+            return None
+        try:
+            parsed = urlparse(str(baseurl))
+            path = unquote(parsed.path or "")
+        except Exception:
+            return None
+
+        if "?" in path:
+            path, _ = path.split("?", 1)
+
+        normalized_path = path.rstrip("/")
+        return parsed.netloc, normalized_path
+
+    @staticmethod
+    def _normalize_env_marker(value: Optional[str]) -> Optional[str]:
+        if not value:
+            return None
+        marker = "/" + str(value).strip().strip("/")
+        return marker if marker != "/" else None
+
+    def _get_env_marker(self, environment: dict) -> str:
+        marker = self._normalize_env_marker(environment.get("contentPrefix"))
+        if marker:
+            return marker
+        marker = self._normalize_env_marker(environment.get("name"))
+        if marker:
+            return marker
+        return ""
+
+    def _split_out_env_marker(self, path: str, env_markers: List[str]) -> tuple[str, str]:
+        for marker in env_markers:
+            index = path.find(marker + "/")
+            if index >= 0:
+                stripped = path[index + len(marker) :]
+                return marker, stripped.rstrip("/")
+
+        return "", path
+
+    def _get_ordered_deb_env_markers(self) -> List[str]:
+        if self._ordered_deb_env_markers is not None:
+            return self._ordered_deb_env_markers
+
+        markers: List[str] = []
+        if not self.identity.is_valid():
+            self._ordered_deb_env_markers = markers
+            return markers
+
+        try:
+            consumer = self.get_consumer_auth_cp().getConsumer(self.identity.uuid)
+            environments = consumer.get("environments") or []
+            for environment in environments:
+                marker = self._get_env_marker(environment)
+                if marker:
+                    markers.append(marker)
+        except Exception as exc:
+            log.debug("Unable to load ordered environment prefixes for deb repo prioritization: %s", exc)
+
+        self._ordered_deb_env_markers = markers
+        return markers
 
     # Expose as public API for RepoActionInvoker.is_managed, since that
     # is used by Openshift tooling.
@@ -527,8 +635,24 @@ class RepoUpdateActionCommand:
     def matching_content(self) -> List["Content"]:
         content = []
         for content_type in ALLOWED_CONTENT_TYPES:
-            content += model.find_content(self.ent_source, content_type=content_type)
+            if HAS_DEB822 and content_type == "deb":
+                # For DEB, keep duplicate labels from SCA/OrgLevel cert payload so
+                # that later dedup can choose by current consumer environment order.
+                content += self._find_deb_content_preserve_duplicates()
+            else:
+                content += model.find_content(self.ent_source, content_type=content_type)
         return content
+
+    def _find_deb_content_preserve_duplicates(self) -> List["Content"]:
+        result: List["Content"] = []
+        for entitlement in self.ent_source:
+            for content in entitlement.contents:
+                if content.content_type.lower() != "deb":
+                    continue
+                if not model.content_tag_match(content.tags, self.ent_source.product_tags):
+                    continue
+                result.append(content)
+        return result
 
     def get_all_content(self, baseurl: str, ca_cert: str) -> List[Repo]:
         matching_content = self.matching_content()
