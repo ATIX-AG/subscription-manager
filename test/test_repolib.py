@@ -363,6 +363,510 @@ class RepoUpdateActionTests(fixture.SubManFixture):
         self.assertEqual("blah", old_repo["gpgcheck"])
         self.assertEqual("some_key", old_repo["gpgkey"])
 
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_get_unique_content_deb_dedups_by_baseurl_across_environment_prefixes(self):
+        lower_prio_repo = Repo("shared-deb-repo-from-low")
+        lower_prio_repo.content_type = "deb"
+        lower_prio_repo["sslclientcert"] = "/etc/pki/entitlement/999.pem"
+        lower_prio_repo["baseurl"] = (
+            "https://cdn.example.test/path/env-low/custom/Debian_13/Client/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        higher_prio_repo = Repo("shared-deb-repo-from-high")
+        higher_prio_repo.content_type = "deb"
+        higher_prio_repo["sslclientcert"] = "/etc/pki/entitlement/100.pem"
+        higher_prio_repo["baseurl"] = (
+            "https://cdn.example.test/path/env-high/custom/Debian_13/Client/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        update_action = RepoUpdateActionCommand()
+        update_action._ordered_deb_env_markers = [
+            "/path/env-high",
+            "/path/env-low",
+        ]
+        update_action.get_all_content = lambda _baseurl, _ca: [lower_prio_repo, higher_prio_repo]
+
+        content = list(update_action.get_unique_content())
+        self.assertEqual(1, len(content))
+        self.assertEqual(
+            "https://cdn.example.test/path/env-high/custom/Debian_13/Client/%3Fcomp%3Dmain%26rel%3Dstable",
+            content[0]["baseurl"],
+        )
+
+    @patch.object(repolib, "HAS_DEB822", False)
+    def test_get_unique_content_non_deb_keeps_legacy_set_behavior(self):
+        repo_a = Repo("shared-repo")
+        repo_a.content_type = "yum"
+        repo_a["baseurl"] = "https://cdn.example.test/a"
+
+        repo_b = Repo("shared-repo")
+        repo_b.content_type = "yum"
+        repo_b["baseurl"] = "https://cdn.example.test/b"
+
+        update_action = RepoUpdateActionCommand()
+        update_action.get_all_content = lambda _baseurl, _ca: [repo_a, repo_b]
+        update_action._select_unique_deb_content = MagicMock()
+
+        content = list(update_action.get_unique_content())
+        self.assertEqual(1, len(content))
+        update_action._select_unique_deb_content.assert_not_called()
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_get_unique_content_deb_environments_with_shared_and_unique_repos(self):
+        env1_repo1 = Repo("repo1")
+        env1_repo1.content_type = "deb"
+        env1_repo1["baseurl"] = (
+            "https://cdn.example.test/path/env1/custom/repo1/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        env1_repo2 = Repo("repo2")
+        env1_repo2.content_type = "deb"
+        env1_repo2["baseurl"] = (
+            "https://cdn.example.test/path/env1/custom/repo2/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        env2_repo1 = Repo("repo1")
+        env2_repo1.content_type = "deb"
+        env2_repo1["baseurl"] = (
+            "https://cdn.example.test/path/env2/custom/repo1/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        env2_repo2 = Repo("repo2")
+        env2_repo2.content_type = "deb"
+        env2_repo2["baseurl"] = (
+            "https://cdn.example.test/path/env2/custom/repo2/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        env3_repo3 = Repo("repo3")
+        env3_repo3.content_type = "deb"
+        env3_repo3["baseurl"] = (
+            "https://cdn.example.test/path/env3/custom/repo3/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        update_action = RepoUpdateActionCommand()
+        update_action._ordered_deb_env_markers = [
+            "/path/env1",
+            "/path/env2",
+            "/path/env3",
+        ]
+        update_action.get_all_content = lambda _baseurl, _ca: [
+            env1_repo1,
+            env1_repo2,
+            env2_repo1,
+            env2_repo2,
+            env3_repo3,
+        ]
+
+        content = list(update_action.get_unique_content())
+        self.assertEqual(3, len(content))
+        baseurls = {repo["baseurl"] for repo in content}
+        self.assertIn(env1_repo1["baseurl"], baseurls)
+        self.assertIn(env1_repo2["baseurl"], baseurls)
+        self.assertIn(env3_repo3["baseurl"], baseurls)
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_get_unique_content_deb_respects_environment_order(self):
+        env1_repo1 = Repo("repo1")
+        env1_repo1.content_type = "deb"
+        env1_repo1["baseurl"] = (
+            "https://cdn.example.test/path/env1/custom/repo1/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        env1_repo2 = Repo("repo2")
+        env1_repo2.content_type = "deb"
+        env1_repo2["baseurl"] = (
+            "https://cdn.example.test/path/env1/custom/repo2/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        env2_repo1 = Repo("repo1")
+        env2_repo1.content_type = "deb"
+        env2_repo1["baseurl"] = (
+            "https://cdn.example.test/path/env2/custom/repo1/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        env2_repo2 = Repo("repo2")
+        env2_repo2.content_type = "deb"
+        env2_repo2["baseurl"] = (
+            "https://cdn.example.test/path/env2/custom/repo2/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        env3_repo3 = Repo("repo3")
+        env3_repo3.content_type = "deb"
+        env3_repo3["baseurl"] = (
+            "https://cdn.example.test/path/env3/custom/repo3/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        update_action = RepoUpdateActionCommand()
+        update_action._ordered_deb_env_markers = [
+            "/path/env2",
+            "/path/env1",
+            "/path/env3",
+        ]
+        update_action.get_all_content = lambda _baseurl, _ca: [
+            env1_repo1,
+            env1_repo2,
+            env2_repo1,
+            env2_repo2,
+            env3_repo3,
+        ]
+
+        content = list(update_action.get_unique_content())
+        self.assertEqual(3, len(content))
+        baseurls = {repo["baseurl"] for repo in content}
+        self.assertIn(env2_repo1["baseurl"], baseurls)
+        self.assertIn(env2_repo2["baseurl"], baseurls)
+        self.assertIn(env3_repo3["baseurl"], baseurls)
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_get_unique_content_deb_without_markers_keeps_distinct_paths(self):
+        env1_repo1 = Repo("repo1")
+        env1_repo1.content_type = "deb"
+        env1_repo1["baseurl"] = (
+            "https://cdn.example.test/path/env1/custom/repo1/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        no_env_repo1 = Repo("repo2")
+        no_env_repo1.content_type = "deb"
+        no_env_repo1["baseurl"] = (
+            "https://cdn.example.test/path/unknown-a/custom/repo1/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        no_env_repo2 = Repo("repo2")
+        no_env_repo2.content_type = "deb"
+        no_env_repo2["baseurl"] = (
+            "https://cdn.example.test/path/unknown-b/custom/repo2/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        update_action = RepoUpdateActionCommand()
+        update_action._ordered_deb_env_markers = ["/path/env1"]
+        update_action.get_all_content = lambda _baseurl, _ca: [
+            env1_repo1,
+            no_env_repo1,
+            no_env_repo2,
+        ]
+
+        content = list(update_action.get_unique_content())
+        self.assertEqual(3, len(content))
+        baseurls = {repo["baseurl"] for repo in content}
+        print(f"baseurls: {baseurls}")
+        self.assertIn(env1_repo1["baseurl"], baseurls)
+        self.assertIn(no_env_repo1["baseurl"], baseurls)
+        self.assertIn(no_env_repo2["baseurl"], baseurls)
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_get_ordered_deb_env_markers_falls_back_to_environment_name(self):
+        update_action = RepoUpdateActionCommand()
+        update_action.identity = MagicMock()
+        update_action.identity.is_valid.return_value = True
+        update_action.identity.uuid = "uuid-1"
+
+        mock_cp = MagicMock()
+        mock_cp.getConsumer.return_value = {
+            "environments": [
+                {"id": "e1", "name": "development/CCV_Debian_13", "contentPrefix": None},
+                {"id": "e2", "name": "test/CCV_Debian_13", "contentPrefix": "custom/ContentPrefix"},
+            ]
+        }
+        update_action.get_consumer_auth_cp = lambda: mock_cp
+
+        markers = update_action._get_ordered_deb_env_markers()
+        self.assertEqual(
+            ["/development/CCV_Debian_13", "/custom/ContentPrefix"],
+            markers,
+        )
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_matching_content_preserves_duplicate_labels_for_deb_repos(self):
+        from subscription_manager import model
+
+        cert = MagicMock()
+        cert.path = "/etc/pki/entitlement/1.pem"
+
+        c1 = model.Content(
+            content_type="deb",
+            name="Client",
+            label="ATIX_Debian_13_Client",
+            url="/ATIX/test/CCV_Debian_13/custom/Debian_13/Client/%3Fcomp%3Dmain%26rel%3Dstable",
+            tags=[],
+            cert=cert,
+            enabled=False,
+            metadata_expire=None,
+            arches=[],
+        )
+        c2 = model.Content(
+            content_type="deb",
+            name="Client",
+            label="ATIX_Debian_13_Client",
+            url="/ATIX/development/CCV_Debian_13/custom/Debian_13/Client/%3Fcomp%3Dmain%26rel%3Dstable",
+            tags=[],
+            cert=cert,
+            enabled=False,
+            metadata_expire=None,
+            arches=[],
+        )
+
+        ent = model.Entitlement(contents=[c1, c2], entitlement_type=CONTENT_ACCESS_CERT_TYPE)
+        ent_src = model.EntitlementSource()
+        ent_src._entitlements = [ent]
+        ent_src.product_tags = []
+
+        update_action = RepoUpdateActionCommand()
+        update_action.ent_source = ent_src
+
+        matched = [c for c in update_action.matching_content() if c.content_type == "deb"]
+        self.assertEqual(2, len(matched))
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_get_env_marker_prefers_content_prefix(self):
+        update_action = RepoUpdateActionCommand()
+        marker = update_action._get_env_marker({"contentPrefix": "/from/prefix", "name": "from/name"})
+        self.assertEqual("/from/prefix", marker)
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_get_ordered_deb_env_markers_handles_get_consumer_exception(self):
+        update_action = RepoUpdateActionCommand()
+        update_action.identity = MagicMock()
+        update_action.identity.is_valid.return_value = True
+        update_action.identity.uuid = "uuid-1"
+        update_action.get_consumer_auth_cp = MagicMock(side_effect=RuntimeError("boom"))
+
+        markers = update_action._get_ordered_deb_env_markers()
+        self.assertEqual([], markers)
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_get_ordered_deb_env_markers_handles_duplicate_markers_defensively(self):
+        update_action = RepoUpdateActionCommand()
+        update_action.identity = MagicMock()
+        update_action.identity.is_valid.return_value = True
+        update_action.identity.uuid = "uuid-1"
+
+        mock_cp = MagicMock()
+        mock_cp.getConsumer.return_value = {
+            "environments": [
+                {"id": "e1", "name": "env-one", "contentPrefix": "/path/shared"},
+                {"id": "e2", "name": "env-two", "contentPrefix": "/path/shared"},
+            ]
+        }
+        update_action.get_consumer_auth_cp = lambda: mock_cp
+
+        markers = update_action._get_ordered_deb_env_markers()
+        self.assertEqual(["/path/shared", "/path/shared"], markers)
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_get_repos_by_environment_uses_repo_id_for_non_deb(self):
+        update_action = RepoUpdateActionCommand()
+        repo = Repo("non-deb-id")
+        repo.content_type = "yum"
+        repo["baseurl"] = "https://cdn.example.test/whatever"
+        repos_by_environment = update_action._get_repos_by_environment([repo], [])
+        self.assertEqual({"": [("id:non-deb-id", repo)]}, repos_by_environment)
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_split_out_env_marker_returns_first_matching_marker(self):
+        update_action = RepoUpdateActionCommand()
+        path = "/pulp/content/ATIX/test/CCV_Debian_13/custom/Debian_13/Client"
+        markers = [
+            "/test",
+            "/test/CCV_Debian_13",
+        ]
+        marker, stripped = update_action._split_out_env_marker(path, markers)
+        self.assertEqual("/test", marker)
+        self.assertEqual("/CCV_Debian_13/custom/Debian_13/Client", stripped)
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_split_out_env_marker_rejects_partial_segment(self):
+        update_action = RepoUpdateActionCommand()
+        path = "/pulp/content/ATIX/testing/CCV_Debian_13/custom/Debian_13/Client"
+        marker, stripped = update_action._split_out_env_marker(path, ["/test"])
+        self.assertEqual("", marker)
+        self.assertEqual(path, stripped)
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_deb_repo_url_parts_parses_parses_path_and_netloc(self):
+        update_action = RepoUpdateActionCommand()
+        repo = Repo("repo")
+        repo.content_type = "deb"
+        repo["baseurl"] = "https://cdn.example.test/path/repo/%3Fcomp%3Dmain%26rel%3Dstable?x=y"
+
+        parts = update_action._deb_repo_url_parts(repo)
+        self.assertIsNotNone(parts)
+        netloc, path = parts
+        self.assertEqual("cdn.example.test", netloc)
+        self.assertEqual("/path/repo", path)
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_deb_repo_url_parts_for_invalid_baseurl_returns_none(self):
+        update_action = RepoUpdateActionCommand()
+        repo = Repo("repo")
+        repo.content_type = "deb"
+        repo["baseurl"] = None
+        self.assertEqual(None, update_action._deb_repo_url_parts(repo))
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_get_repos_by_environment_with_marker_match(self):
+        update_action = RepoUpdateActionCommand()
+        repo = Repo("repo")
+        repo.content_type = "deb"
+        repo["baseurl"] = "https://cdn.example.test/path/env1/custom/repo1/%3Fcomp%3Dmain%26rel%3Dstable"
+        markers = ["/path/env1"]
+
+        repos_by_environment = update_action._get_repos_by_environment([repo], markers)
+        self.assertEqual(
+            {"/path/env1": [("deb:cdn.example.test/custom/repo1", repo)]},
+            repos_by_environment,
+        )
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_get_repos_by_environment_without_marker_match(self):
+        update_action = RepoUpdateActionCommand()
+        repo = Repo("repo")
+        repo.content_type = "deb"
+        repo["baseurl"] = (
+            "https://cdn.example.test/path/unknown-env/custom/repo1/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+        markers = ["/path/env1"]
+
+        repos_by_environment = update_action._get_repos_by_environment([repo], markers)
+        self.assertEqual(
+            {"": [("deb:cdn.example.test/path/unknown-env/custom/repo1", repo)]},
+            repos_by_environment,
+        )
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_get_repos_by_environment_ignores_query_when_building_keys(self):
+        update_action = RepoUpdateActionCommand()
+        markers = ["/path/env1"]
+
+        repo_a = Repo("repo")
+        repo_a.content_type = "deb"
+        repo_a["baseurl"] = "https://cdn.example.test/path/env1/custom/repo1/%3Fcomp%3Dmain%26rel%3Dstable"
+
+        repo_b = Repo("repo")
+        repo_b.content_type = "deb"
+        repo_b["baseurl"] = (
+            "https://cdn.example.test/path/env1/custom/repo1/%3Fcomp%3Dmain%26rel%3Dstable-updates"
+        )
+
+        repos_by_environment = update_action._get_repos_by_environment([repo_a, repo_b], markers)
+        key_a = repos_by_environment["/path/env1"][0][0]
+        key_b = repos_by_environment["/path/env1"][1][0]
+        self.assertEqual(key_a, key_b)
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_get_repos_by_environment_matches_percent_encoded_and_plain_paths(self):
+        update_action = RepoUpdateActionCommand()
+        markers = ["/path/env1"]
+
+        encoded = Repo("repo")
+        encoded.content_type = "deb"
+        encoded["baseurl"] = "https://cdn.example.test/path/env1/custom/repo%31/%3Fcomp%3Dmain%26rel%3Dstable"
+
+        plain = Repo("repo")
+        plain.content_type = "deb"
+        plain["baseurl"] = "https://cdn.example.test/path/env1/custom/repo1/%3Fcomp%3Dmain%26rel%3Dstable"
+
+        repos_by_environment = update_action._get_repos_by_environment([encoded, plain], markers)
+        key_encoded = repos_by_environment["/path/env1"][0][0]
+        key_plain = repos_by_environment["/path/env1"][1][0]
+
+        self.assertEqual(key_plain, key_encoded)
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_select_unique_deb_content_is_order_independent(self):
+        update_action = RepoUpdateActionCommand()
+        update_action._ordered_deb_env_markers = [
+            "/path/env1",
+            "/path/env2",
+        ]
+
+        env2_repo1 = Repo("repo1")
+        env2_repo1.content_type = "deb"
+        env2_repo1["baseurl"] = (
+            "https://cdn.example.test/path/env2/custom/repo1/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+        env1_repo1 = Repo("repo1")
+        env1_repo1.content_type = "deb"
+        env1_repo1["baseurl"] = (
+            "https://cdn.example.test/path/env1/custom/repo1/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+        env2_repo2 = Repo("repo2")
+        env2_repo2.content_type = "deb"
+        env2_repo2["baseurl"] = (
+            "https://cdn.example.test/path/env2/custom/repo2/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+        env1_repo2 = Repo("repo2")
+        env1_repo2.content_type = "deb"
+        env1_repo2["baseurl"] = (
+            "https://cdn.example.test/path/env1/custom/repo2/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        winners_a = update_action._select_unique_deb_content([env2_repo1, env1_repo1, env2_repo2, env1_repo2])
+        winners_b = update_action._select_unique_deb_content([env1_repo2, env2_repo2, env1_repo1, env2_repo1])
+
+        self.assertEqual(
+            {repo["baseurl"] for repo in winners_a},
+            {repo["baseurl"] for repo in winners_b},
+        )
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_select_unique_deb_content_keeps_unknown_environment_repos(self):
+        update_action = RepoUpdateActionCommand()
+        update_action._ordered_deb_env_markers = ["/path/env1"]
+
+        repo = Repo("repo1")
+        repo.content_type = "deb"
+        repo["baseurl"] = (
+            "https://cdn.example.test/path/unknown-env/custom/repo1/%3Fcomp%3Dmain%26rel%3Dstable"
+        )
+
+        winners = update_action._select_unique_deb_content([repo])
+
+        self.assertEqual([repo], winners)
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_select_unique_deb_content_with_no_repos_returns_empty_list(self):
+        update_action = RepoUpdateActionCommand()
+        update_action._ordered_deb_env_markers = ["/path/env1"]
+
+        winners = update_action._select_unique_deb_content([])
+
+        self.assertEqual([], winners)
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_select_unique_deb_content_allows_environments_without_repos(self):
+        update_action = RepoUpdateActionCommand()
+        update_action._ordered_deb_env_markers = ["/path/env1", "/path/env2"]
+
+        repo = Repo("repo1")
+        repo.content_type = "deb"
+        repo["baseurl"] = "https://cdn.example.test/path/env1/custom/repo1/%3Fcomp%3Dmain%26rel%3Dstable"
+
+        winners = update_action._select_unique_deb_content([repo])
+
+        self.assertEqual([repo], winners)
+
+    @patch.object(repolib, "HAS_DEB822", True)
+    def test_get_ordered_deb_env_markers_uses_cache_after_first_lookup(self):
+        update_action = RepoUpdateActionCommand()
+        update_action.identity = MagicMock()
+        update_action.identity.is_valid.return_value = True
+        update_action.identity.uuid = "uuid-1"
+
+        mock_cp = MagicMock()
+        mock_cp.getConsumer.return_value = {
+            "environments": [
+                {"id": "e1", "name": "env-one", "contentPrefix": "/path/env-one"},
+            ]
+        }
+        update_action.get_consumer_auth_cp = MagicMock(return_value=mock_cp)
+
+        first = update_action._get_ordered_deb_env_markers()
+        second = update_action._get_ordered_deb_env_markers()
+
+        self.assertEqual(["/path/env-one"], first)
+        self.assertEqual(first, second)
+        update_action.get_consumer_auth_cp.assert_called_once_with()
+
     @patch("subscription_manager.repolib.get_repo_file_classes")
     def test_update_when_new_repo(self, mock_get_repo_file_classes):
         mock_file = MagicMock()
