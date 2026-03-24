@@ -17,6 +17,7 @@ from typing import Dict, Iterable, List, Literal, Optional, Set, Tuple, Union, T
 from iniparse import RawConfigParser as ConfigParser
 import logging
 import os
+from urllib.parse import urlparse, unquote
 
 import subscription_manager.injection as inj
 from subscription_manager.cache import OverrideStatusCache, WrittenOverrideCache
@@ -394,6 +395,7 @@ class RepoUpdateActionCommand:
             log.error(f"{type(exc).__name__}: {exc}")
 
         self.written_overrides = WrittenOverrideCache()
+        self._deb_env_prefix_ranks: Optional[Dict[str, int]] = None
 
         # FIXME: empty report at the moment, should be changed to include
         # info about updated repos
@@ -512,9 +514,155 @@ class RepoUpdateActionCommand:
         ca_cert = conf["rhsm"]["repo_ca_cert"]
 
         content_list = self.get_all_content(baseurl, ca_cert)
+        # Keep existing behavior for non-DEB systems.
+        if not HAS_DEB822:
+            return set(content_list)
+        return self._select_unique_deb_content(content_list)
 
-        # assumes items in content_list are hashable
-        return set(content_list)
+    def _select_unique_deb_content(self, content_list: List[Repo]) -> List[Repo]:
+        env_markers = self._get_deb_environment_markers()
+        unique: List[Tuple[Repo, Optional[int]]] = []
+        seen_keys: Dict[str, int] = {}
+
+        for repo in content_list:
+            repo_key, repo_rank = self._repo_key_and_rank(repo, env_markers)
+            existing_index = seen_keys.get(repo_key)
+            if existing_index is None:
+                seen_keys[repo_key] = len(unique)
+                unique.append((repo, repo_rank))
+                continue
+
+            current_repo, current_rank = unique[existing_index]
+            if self._is_better_repo_candidate(repo, repo_rank, current_repo, current_rank):
+                unique[existing_index] = (repo, repo_rank)
+
+        return [repo for repo, _rank in unique]
+
+    def _repo_key_and_rank(self, repo: Repo, env_markers: Dict[str, int]) -> Tuple[str, Optional[int]]:
+        if repo.content_type != "deb":
+            return f"id:{repo.id}", None
+
+        parts = self._deb_repo_url_parts(repo)
+        if parts is None:
+            return f"id:{repo.id}", None
+        netloc, path, query = parts
+
+        repo_rank = self._deb_path_rank(path, env_markers)
+        normalized_path = self._strip_best_env_marker(path, env_markers)
+        repo_key = f"deb:{netloc}{normalized_path}?{query}"
+        return repo_key, repo_rank
+
+    @staticmethod
+    def _deb_repo_url_parts(repo: Repo) -> Optional[Tuple[str, str, str]]:
+        baseurl = repo.get("baseurl")
+        if not baseurl:
+            return None
+        try:
+            parsed = urlparse(str(baseurl))
+            path = unquote(parsed.path or "")
+        except Exception:
+            return None
+
+        query = parsed.query or ""
+        if "?" in path:
+            path, embedded_query = path.split("?", 1)
+            if embedded_query:
+                query = embedded_query if not query else f"{embedded_query}&{query}"
+
+        normalized_path = "/" + path.strip("/")
+        return parsed.netloc, normalized_path, query
+
+    @staticmethod
+    def _normalize_env_marker(value: Optional[str]) -> Optional[str]:
+        if not value:
+            return None
+        marker = "/" + str(value).strip().strip("/")
+        return marker if marker != "/" else None
+
+    def _environment_marker(self, environment: dict) -> Optional[str]:
+        marker = self._normalize_env_marker(environment.get("contentPrefix"))
+        if marker:
+            return marker
+        return self._normalize_env_marker(environment.get("name"))
+
+    @staticmethod
+    def _is_path_marker_match(path: str, marker: str, idx: int) -> bool:
+        if idx < 0:
+            return False
+
+        # marker starts with '/', so only validate the trailing boundary
+        # (same behavior as the previously working implementation).
+        return idx + len(marker) == len(path) or path[idx + len(marker)] == "/"
+
+    def _strip_best_env_marker(self, path: str, env_markers: Dict[str, int]) -> str:
+        best_marker = None
+        best_idx = -1
+        for marker in env_markers.keys():
+            idx = path.find(marker)
+            if self._is_path_marker_match(path, marker, idx):
+                if best_marker is None or len(marker) > len(best_marker):
+                    best_marker = marker
+                    best_idx = idx
+
+        if best_marker is None:
+            return path
+
+        stripped = path[best_idx + len(best_marker) :]
+        return "/" + stripped.strip("/")
+
+    @staticmethod
+    def _is_better_repo_candidate(
+        candidate_repo: Repo,
+        candidate_rank: Optional[int],
+        current_repo: Repo,
+        current_rank: Optional[int],
+    ) -> bool:
+        if current_repo.content_type != "deb" or candidate_repo.content_type != "deb":
+            return False
+
+        if current_rank is not None or candidate_rank is not None:
+            if current_rank is None:
+                return True
+            if candidate_rank is None:
+                return False
+            if candidate_rank != current_rank:
+                return candidate_rank < current_rank
+
+        # Stable tiebreaker when environment ranking cannot decide.
+        candidate_baseurl = str(candidate_repo.get("baseurl") or "")
+        current_baseurl = str(current_repo.get("baseurl") or "")
+        return candidate_baseurl > current_baseurl
+
+    def _deb_path_rank(self, url_path: str, env_markers: Dict[str, int]) -> Optional[int]:
+        best_rank: Optional[int] = None
+        for marker, rank in env_markers.items():
+            idx = url_path.find(marker)
+            if self._is_path_marker_match(url_path, marker, idx):
+                if best_rank is None or rank < best_rank:
+                    best_rank = rank
+        return best_rank
+
+    def _get_deb_environment_markers(self) -> Dict[str, int]:
+        if self._deb_env_prefix_ranks is not None:
+            return self._deb_env_prefix_ranks
+
+        ranks: Dict[str, int] = {}
+        if not self.identity.is_valid():
+            self._deb_env_prefix_ranks = ranks
+            return ranks
+
+        try:
+            consumer = self.get_consumer_auth_cp().getConsumer(self.identity.uuid)
+            environments = consumer.get("environments") or []
+            for index, environment in enumerate(environments):
+                marker = self._environment_marker(environment)
+                if marker:
+                    ranks[marker] = index
+        except Exception as exc:
+            log.debug("Unable to load ordered environment prefixes for deb repo prioritization: %s", exc)
+
+        self._deb_env_prefix_ranks = ranks
+        return ranks
 
     # Expose as public API for RepoActionInvoker.is_managed, since that
     # is used by Openshift tooling.
@@ -522,8 +670,24 @@ class RepoUpdateActionCommand:
     def matching_content(self) -> List["Content"]:
         content = []
         for content_type in ALLOWED_CONTENT_TYPES:
-            content += model.find_content(self.ent_source, content_type=content_type)
+            if HAS_DEB822 and content_type == "deb":
+                # For DEB, keep duplicate labels from SCA/OrgLevel cert payload so
+                # that later dedup can choose by current consumer environment order.
+                content += self._find_deb_content_preserve_duplicates()
+            else:
+                content += model.find_content(self.ent_source, content_type=content_type)
         return content
+
+    def _find_deb_content_preserve_duplicates(self) -> List["Content"]:
+        result: List["Content"] = []
+        for entitlement in self.ent_source:
+            for content in entitlement.contents:
+                if content.content_type.lower() != "deb":
+                    continue
+                if not model.content_tag_match(content.tags, self.ent_source.product_tags):
+                    continue
+                result.append(content)
+        return result
 
     def get_all_content(self, baseurl: str, ca_cert: str) -> List[Repo]:
         matching_content = self.matching_content()
