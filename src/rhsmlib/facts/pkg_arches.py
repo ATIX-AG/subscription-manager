@@ -12,6 +12,7 @@
 # in this software or its documentation.
 #
 import logging
+import re
 import subprocess
 from typing import Dict, List, Union
 
@@ -59,6 +60,17 @@ class SupportedArchesCollector(collector.FactsCollector):
                 arches.append(arch.rstrip("\n"))
         except Exception as e:
             log.error("Error getting dpkg foreign architecture: %s", e)
+
+        try:
+            arch_variants: str = subprocess.check_output(
+                ["apt-config", "dump", "APT::Architecture-Variants"]
+            ).decode("UTF-8")
+
+            for variant in re.findall(r'APT::Architecture-Variants\s+"([^"]+)"', arch_variants):
+                if variant != "":
+                    arches.append(variant)
+        except Exception as e:
+            log.error("Error getting apt architecture variants: %s", e)
 
         # All debian systems supports no-architecture packages (= 'all'), too
         arches.append("all")
