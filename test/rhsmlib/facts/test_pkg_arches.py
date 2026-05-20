@@ -19,6 +19,16 @@ class TestSupportedArchesCollector(unittest.TestCase):
             return "i386\n".encode("UTF-8")
         return "".encode("UTF-8")
 
+    @staticmethod
+    def helper_dpkg_with_arch_variant(*args, **kwargs):
+        if args[0][0] == "dpkg" and args[0][1] == "--print-architecture":
+            return "amd64\n".encode("UTF-8")
+        elif args[0][0] == "dpkg" and args[0][1] == "--print-foreign-architectures":
+            return "".encode("UTF-8")
+        elif args[0][0] == "apt-config":
+            return 'APT::Architecture-Variants "amd64v3";\n'.encode("UTF-8")
+        return "".encode("UTF-8")
+
     @patch("subprocess.check_output")
     def test_single_arch_on_debian(self, MockCheckOutput):
         collector = pkg_arches.SupportedArchesCollector(collected_hw_info={"distribution.name": "Debian"})
@@ -53,3 +63,10 @@ class TestSupportedArchesCollector(unittest.TestCase):
         MockCheckOutput.side_effect = self.helper_dpkg_no_foreign
         fact = collector.get_all()
         self.assertTrue("supported_architectures" not in fact)
+
+    @patch("subprocess.check_output")
+    def test_architecture_variant_on_ubuntu(self, MockCheckOutput):
+        collector = pkg_arches.SupportedArchesCollector(collected_hw_info={"distribution.name": "Ubuntu"})
+        MockCheckOutput.side_effect = self.helper_dpkg_with_arch_variant
+        fact = collector.get_all()
+        self.assertEqual(fact["supported_architectures"], "amd64,amd64v3,all")
