@@ -543,8 +543,8 @@ class RepoUpdateActionCommand:
 
     def _get_repos_by_environment(
         self, content_list: List[Repo], env_markers: List[str]
-    ) -> Dict[str, List[tuple[str, Repo]]]:
-        repos_by_environments: Dict[str, List[tuple[str, Repo]]] = {}
+    ) -> Dict[str, List[Tuple[str, Repo]]]:
+        repos_by_environments: Dict[str, List[Tuple[str, Repo]]] = {}
 
         for repo in content_list:
             if repo.content_type != "deb":
@@ -598,7 +598,7 @@ class RepoUpdateActionCommand:
             return marker
         return ""
 
-    def _split_out_env_marker(self, path: str, env_markers: List[str]) -> tuple[str, str]:
+    def _split_out_env_marker(self, path: str, env_markers: List[str]) -> Tuple[str, str]:
         for marker in env_markers:
             index = path.find(marker + "/")
             if index >= 0:
