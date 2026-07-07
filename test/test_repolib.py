@@ -1128,10 +1128,8 @@ class AptRepoFileTest(unittest.TestCase):
         location_no_query = "example.site.org/pulp/deb/long/path/repository/"
         entitlement = "12345"
         repo_id = "example_repo"
-        baseurl = (
-            "https://{location}?rel=bookworm,bullseye&comp=main,contrib&foo=bar".format(
-                location=location_no_query
-            )
+        baseurl = "https://{location}?rel=bookworm,bullseye&comp=main,contrib&foo=bar".format(
+            location=location_no_query
         )
         repo_mock = self._helper_stub_repo(
             repo_id,
@@ -1149,7 +1147,9 @@ class AptRepoFileTest(unittest.TestCase):
         self.assertIn("@example.site.org/{}/example-repo".format(expected_hash), act_content["URIs"])
 
         userinfo = act_content["URIs"].split("://", 1)[1].split("@", 1)[0]
-        repopath_field = [field for field in userinfo.split(";") if field.startswith(ar.REPOPATH_FIELD + "=")][0]
+        repopath_field = [
+            field for field in userinfo.split(";") if field.startswith(ar.REPOPATH_FIELD + "=")
+        ][0]
         encoded_repopath = repopath_field.split("=", 1)[1]
         self.assertEqual(unquote(encoded_repopath), location_no_query)
 

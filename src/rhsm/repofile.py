@@ -503,7 +503,7 @@ if HAS_DEB822:
         @classmethod
         def _short_katello_uri(cls, entitlement, location, fqdn, repo_id):
             # Canonical short URI format consumed by apt-transport-go-katello:
-            # katello://<entitlement>;repopath=<urlencoded "<fqdn>/<path>">@<fqdn>/<sha256-hex-16>/<readable-repo-id>
+            # katello://<entitlement>;repopath=<urlencoded "<fqdn>/<path>">@<fqdn>/<sha256-hex-16>/<readable-repo-id>  # noqa: E501
             # The visible alias after '@' keeps apt list/cache file names short.
             digest = hashlib.sha256(location.encode("utf-8")).hexdigest()[: cls.URI_HASH_LEN]
             encoded_location = quote(location, safe="")
