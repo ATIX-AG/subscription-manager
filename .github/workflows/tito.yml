@@ -18,9 +18,6 @@ jobs:
           - name: "Fedora latest"
             image: "registry.fedoraproject.org/fedora:latest"
             packager: "dnf4"
-          - name: "Fedora Rawhide"
-            image: "registry.fedoraproject.org/fedora:rawhide"
-            packager: "dnf5"
 
     runs-on: ubuntu-latest
     container:
